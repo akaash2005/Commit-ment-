@@ -313,12 +313,26 @@ ${!isCorrect ? `Remember: ${correctAnswer} is correct because...` : 'Keep up the
         const data = await response.json();
         console.log('API Response received:', data);
         
-        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
-          console.error('Invalid API response structure:', data);
+        // Check if response has the expected structure
+        if (!data.candidates || !data.candidates[0]) {
+          console.error('Invalid API response structure - no candidates:', data);
           throw new Error('Invalid response structure from API');
         }
 
-        const aiResponse = data.candidates[0].content.parts[0].text;
+        const candidate = data.candidates[0];
+        
+        // Handle different response structures
+        let aiResponse;
+        if (candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text) {
+          aiResponse = candidate.content.parts[0].text;
+        } else if (candidate.text) {
+          aiResponse = candidate.text;
+        } else if (candidate.output) {
+          aiResponse = candidate.output;
+        } else {
+          console.error('Could not extract text from API response:', candidate);
+          throw new Error('Could not extract text from API response');
+        }
         
         setChatMessages(prev => [...prev, {
           type: 'ai',
