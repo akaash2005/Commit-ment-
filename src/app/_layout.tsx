@@ -50,6 +50,15 @@ export default function Layout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: "Chat",
+          tabBarIcon: ({ color, size }) => (
+            <AntDesign name="message1" size={size} color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }
