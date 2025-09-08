@@ -12,5 +12,5 @@
     "**/*.ts",
     "**/*.tsx",
     "nativewind-env.d.ts"
-  ]
+, "src/lib/supabase.jsx", "src/lib/supabase.js"  ]
 }

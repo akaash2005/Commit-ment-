@@ -13,7 +13,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase, chatService } from '../lib/supabase';
+import { supabase, chatService } from '../../lib/supabase';
 import { Match, Message, ChatUser } from '../types/database';
 
 // Current student ID - this would come from authentication/props in real app
