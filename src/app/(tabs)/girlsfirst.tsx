@@ -295,7 +295,9 @@ ${!isCorrect ? `Remember: ${correctAnswer} is correct because...` : 'Keep up the
             }],
             generationConfig: {
               temperature: 0.7,
-              maxOutputTokens: 150,
+              maxOutputTokens: 300,
+              topP: 0.8,
+              topK: 40
             }
           })
         });
@@ -311,27 +313,60 @@ ${!isCorrect ? `Remember: ${correctAnswer} is correct because...` : 'Keep up the
         }
 
         const data = await response.json();
-        console.log('API Response received:', data);
+        console.log('Full API Response received:', JSON.stringify(data, null, 2));
         
         // Check if response has the expected structure
-        if (!data.candidates || !data.candidates[0]) {
-          console.error('Invalid API response structure - no candidates:', data);
-          throw new Error('Invalid response structure from API');
+        if (!data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+          console.error('Invalid API response structure - no candidates:', JSON.stringify(data, null, 2));
+          throw new Error('Invalid response structure from API - no candidates found');
         }
 
         const candidate = data.candidates[0];
+        console.log('Processing candidate:', JSON.stringify(candidate, null, 2));
         
-        // Handle different response structures
-        let aiResponse;
-        if (candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text) {
-          aiResponse = candidate.content.parts[0].text;
-        } else if (candidate.text) {
-          aiResponse = candidate.text;
-        } else if (candidate.output) {
-          aiResponse = candidate.output;
-        } else {
-          console.error('Could not extract text from API response:', candidate);
-          throw new Error('Could not extract text from API response');
+        // Handle different response structures with comprehensive fallbacks
+        let aiResponse = null;
+        
+        // Try multiple extraction paths
+        const extractionPaths = [
+          () => candidate.content?.parts?.[0]?.text,
+          () => candidate.content?.text,
+          () => candidate.text,
+          () => candidate.output,
+          () => candidate.message?.content,
+          () => candidate.generated_text,
+          () => candidate.content?.parts?.map(part => part.text).join(''),
+        ];
+        
+        for (const extractPath of extractionPaths) {
+          try {
+            const extracted = extractPath();
+            if (extracted && typeof extracted === 'string' && extracted.trim()) {
+              aiResponse = extracted.trim();
+              console.log('Successfully extracted text using path:', extractPath.toString());
+              break;
+            }
+          } catch (e) {
+            console.log('Extraction path failed:', e.message);
+            continue;
+          }
+        }
+        
+        // Handle partial content or finish reason issues
+        if (!aiResponse && candidate.finishReason) {
+          console.warn('Response may be incomplete due to finish reason:', candidate.finishReason);
+          if (candidate.finishReason === 'MAX_TOKENS') {
+            aiResponse = 'Response was cut off due to length limits. Let me give you a shorter explanation: ' + 
+                        (isCorrect ? '🎉 Great job! You got it right!' : `💡 The correct answer is "${correctAnswer}". Keep practicing!`);
+          } else if (candidate.finishReason === 'SAFETY') {
+            aiResponse = 'Content filtered for safety. Here\'s a simple explanation: ' + 
+                        (isCorrect ? '🎉 Well done!' : `💡 The right answer is "${correctAnswer}".`);
+          }
+        }
+        
+        if (!aiResponse) {
+          console.error('Could not extract any text from API response. Full candidate object:', JSON.stringify(candidate, null, 2));
+          throw new Error('Could not extract text from API response - all extraction methods failed');
         }
         
         setChatMessages(prev => [...prev, {
