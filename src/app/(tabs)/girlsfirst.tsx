@@ -257,47 +257,109 @@ ${isCorrect ? '🎉 Great job!' : '💡 Let me help you understand!'}
 
 ${!isCorrect ? `Remember: ${correctAnswer} is correct because...` : 'Keep up the good work!'}`;
 
-    try {
-      const response = await fetch(GEMINI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: prompt
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 150,
-          }
-        })
-      });
-
-      const data = await response.json();
-      const aiResponse = data.candidates[0].content.parts[0].text;
-      
+    // Check if API key is properly configured
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === 'your-api-key-here') {
+      console.warn('Gemini API key not configured properly');
       setChatMessages(prev => [...prev, {
         type: 'ai',
-        text: aiResponse,
+        text: '⚠️ AI explanation service is not configured. Please set up your API key to get personalized explanations.\n\n' + 
+              (isCorrect 
+                ? '🎉 Great job! You got it right! Keep practicing to improve your English.' 
+                : `💡 The correct answer is "${correctAnswer}". Don't worry, making mistakes is how we learn! Try to remember this for next time.`),
         timestamp: new Date().toLocaleTimeString()
       }]);
-    } catch (error) {
-      setChatMessages(prev => [...prev, {
-        type: 'ai',
-        text: isCorrect 
-          ? '🎉 Great job! You got it right! Keep practicing to improve your English.' 
-          : `💡 The correct answer is "${correctAnswer}". Don't worry, making mistakes is how we learn! Try to remember this for next time.`,
-        timestamp: new Date().toLocaleTimeString()
-      }]);
-    } finally {
       setIsLoading(false);
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
+      return;
     }
+
+    let retryCount = 0;
+    const maxRetries = 2;
+
+    const attemptAPICall = async () => {
+      try {
+        console.log('Attempting API call to Gemini...', { retryCount });
+        
+        const response = await fetch(GEMINI_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: prompt
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 150,
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('API Response Error:', {
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText
+          });
+          throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log('API Response received:', data);
+        
+        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
+          console.error('Invalid API response structure:', data);
+          throw new Error('Invalid response structure from API');
+        }
+
+        const aiResponse = data.candidates[0].content.parts[0].text;
+        
+        setChatMessages(prev => [...prev, {
+          type: 'ai',
+          text: aiResponse,
+          timestamp: new Date().toLocaleTimeString()
+        }]);
+        
+        console.log('AI explanation successfully generated');
+        return true; // Success
+        
+      } catch (error) {
+        console.error('API call attempt failed:', error);
+        retryCount++;
+        
+        if (retryCount < maxRetries) {
+          console.log(`Retrying API call... (${retryCount}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)); // Progressive delay
+          return attemptAPICall();
+        } else {
+          // All retries failed, show error message with fallback
+          console.error('All API retry attempts failed');
+          setChatMessages(prev => [...prev, {
+            type: 'ai',
+            text: `🤖 I'm having trouble connecting to my AI teacher right now. Let me give you a quick explanation:\n\n` +
+                  (isCorrect 
+                    ? '🎉 Great job! You got it right! Keep practicing to improve your English.' 
+                    : `💡 The correct answer is "${correctAnswer}". Don't worry, making mistakes is how we learn! Try to remember this for next time.`) +
+                  '\n\n🔄 Please try again in a moment for a detailed AI explanation.',
+            timestamp: new Date().toLocaleTimeString()
+          }]);
+          return false; // Failed
+        }
+      }
+    };
+
+    await attemptAPICall();
+    
+    setIsLoading(false);
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
   };
 
   const handleAnswerSelect = async (answer) => {
