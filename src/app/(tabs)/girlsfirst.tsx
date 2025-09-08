@@ -182,7 +182,7 @@ const quizData = [
 ];
 
 // Gemini API Configuration
-const GEMINI_API_KEY = 'AIzaSyCTLgHElY4jkBqDD315NkUhQZiCyRDjQjA';
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || 'your-api-key-here';
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`;
 
 const App = () => {
@@ -602,7 +602,7 @@ Please provide a helpful, simple response in 2-3 sentences using basic English. 
                   msg.type === 'user' ? styles.userMessage : styles.aiMessage
                 ]}
               >
-                <Text style={styles.messageText}>{msg.text}</Text>
+                <Text style={msg.type === 'user' ? styles.userMessageText : styles.messageText}>{msg.text}</Text>
                 <Text style={styles.messageTime}>{msg.timestamp}</Text>
               </View>
             ))}
@@ -908,12 +908,10 @@ const styles = StyleSheet.create({
     color: '#2C3E50',
     lineHeight: 20,
   },
-  userMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#4A90E2',
-  },
-  'userMessage messageText': {
+  userMessageText: {
+    fontSize: 14,
     color: 'white',
+    lineHeight: 20,
   },
   messageTime: {
     fontSize: 10,
