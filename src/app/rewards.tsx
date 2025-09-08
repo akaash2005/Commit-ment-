@@ -1,334 +1,369 @@
-import React, { useState, useEffect } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+"use client";
+import React, { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+import { motion } from "framer-motion";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { createClient } from "@supabase/supabase-js";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
-// ✅ Supabase client setup with your credentials
-const supabaseUrl = "https://rtuxsfdroqdnhtagttmj.supabase.co";
-const supabaseAnonKey = "sb_publishable_MkAinQ_yxq2HqGfakMEREg_YguVKGX6";
+// ---------------------- Supabase Setup ----------------------
+const supabase = createClient(
+  "https://your-supabase-url.supabase.co", // replace with your URL
+  "sb_publishable_MkAinQ_yxq2HqGfakMEREg_YguVKGX6" // your anon key
+);
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// ---------------------- Types ----------------------
+interface Student {
+  id: number;
+  name: string;
+  attendance_pct: number;
+  marks_pct: number;
+  remedial_participation: boolean;
+  monthly_credits: number;
+  redeemed_this_month: number;
+  gender: string;
+  career_goal?: string;
+  password?: string;
+}
 
-const Rewards: React.FC = () => {
-  const [activeTab, setActiveTab] = useState("progress");
-  const [studentId, setStudentId] = useState<number>(1); // TODO: replace with logged-in student's ID
+interface Reward {
+  id: number;
+  title: string;
+  type: string;
+  cost: number;
+  sponsor_id: string;
+  local_only: boolean;
+}
+
+interface Redemption {
+  id: number;
+  reward: Reward;
+  redeemed_at: string;
+}
+
+// ---------------------- Main Component ----------------------
+const RewardsDashboard: React.FC = () => {
+  const [student, setStudent] = useState<Student | null>(null);
+  const [rewards, setRewards] = useState<Reward[]>([]);
+  const [redeemed, setRedeemed] = useState<Redemption[]>([]);
+  const [cart, setCart] = useState<Reward[]>([]);
   const [credits, setCredits] = useState(0);
-  const [attendance, setAttendance] = useState(0);
-  const [marks, setMarks] = useState(0);
-  const [remedial, setRemedial] = useState(0);
-  const [rewards, setRewards] = useState<any[]>([]);
-  const [redeemed, setRedeemed] = useState<any[]>([]);
-  const [impactMonth, setImpactMonth] = useState("September");
-  const [loading, setLoading] = useState(true);
-
-  // ✅ Load student + rewards from DB
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        
-        // get student data
-        const { data: student, error: studentError } = await supabase
-          .from("students")
-          .select("credits, attendance, marks, remedial_sessions")
-          .eq("id", studentId)
-          .single();
-
-        if (studentError) {
-          console.error("Error fetching student:", studentError);
-        } else if (student) {
-          setCredits(student.credits || 0);
-          setAttendance(student.attendance || 0);
-          setMarks(student.marks || 0);
-          setRemedial(student.remedial_sessions || 0);
-        }
-
-        // get rewards list
-        const { data: rewardList, error: rewardsError } = await supabase
-          .from("rewards")
-          .select("*");
-        
-        if (rewardsError) {
-          console.error("Error fetching rewards:", rewardsError);
-        } else {
-          setRewards(rewardList || []);
-        }
-
-        // get redeemed rewards
-        const { data: redeemedList, error: redeemedError } = await supabase
-          .from("redemptions")
-          .select("id, redeemed_at, rewards(name, cost)")
-          .eq("student_id", studentId)
-          .order("redeemed_at", { ascending: false });
-
-        if (redeemedError) {
-          console.error("Error fetching redeemed rewards:", redeemedError);
-        } else {
-          setRedeemed(redeemedList || []);
-        }
-      } catch (error) {
-        console.error("Unexpected error:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [studentId]);
-
-  // ✅ Redeem reward
-  const handleRedeem = async (reward: any) => {
-    if (credits < reward.cost) {
-      alert("Not enough credits!");
-      return;
-    }
-
-    try {
-      // insert redemption
-      const { error: redeemError } = await supabase.from("redemptions").insert({
-        student_id: studentId,
-        reward_id: reward.id,
-      });
-
-      if (redeemError) {
-        console.error("Error redeeming reward:", redeemError);
-        alert("Failed to redeem reward. Please try again.");
-        return;
-      }
-
-      // deduct credits
-      const { error: creditError } = await supabase
-        .from("students")
-        .update({ credits: credits - reward.cost })
-        .eq("id", studentId);
-
-      if (creditError) {
-        console.error("Error updating credits:", creditError);
-        alert("Failed to update credits. Please contact support.");
-        return;
-      }
-
-      // refresh local state
-      setCredits(credits - reward.cost);
-      setRedeemed([{ rewards: reward }, ...redeemed]);
-      alert(`Successfully redeemed ${reward.name}!`);
-    } catch (error) {
-      console.error("Unexpected error during redemption:", error);
-      alert("An unexpected error occurred. Please try again.");
-    }
-  };
-
-  const nudges = [
-    attendance < 75
-      ? "⚠️ Try to attend regularly! Aim for 90% this month."
-      : "✅ Great job on attendance! Keep it up!",
-    marks < 60
-      ? "📖 Spend 30 minutes daily revising — it will help boost marks."
-      : "🎉 You're doing well in academics!",
-    remedial > 0
-      ? "👏 Attended remedial sessions — extra effort counts!"
-      : "Consider joining a remedial session for bonus credits.",
-  ];
-
-  const impactData = [
-    { name: "Attendance", value: attendance },
-    { name: "Marks", value: marks },
-    { name: "Remedial", value: remedial * 10 },
-  ];
 
   const COLORS = ["#0088FE", "#00C49F", "#FFBB28"];
 
-  const badges = [
-    { label: "Consistent Learner", condition: attendance >= 90 },
-    { label: "Active Participant", condition: remedial >= 2 },
-    { label: "Scholar in Progress", condition: marks >= 75 },
-  ];
+  // Fetch student, rewards, and redemption data
+  useEffect(() => {
+    const fetchData = async () => {
+      // Example: using student id 1
+      const studentId = 1;
 
-  const tabs = [
-    { id: "progress", label: "Progress" },
-    { id: "rewards", label: "Redeem" },
-    { id: "nudges", label: "AI Nudges" },
-    { id: "impact", label: "Impact" }
-  ];
+      const { data: studentData } = await supabase
+        .from("students")
+        .select("*")
+        .eq("id", studentId)
+        .single();
 
-  if (loading) {
-    return (
-      <div className="p-4">
-        <h1 className="text-2xl font-bold">🎁 Rewards Dashboard</h1>
-        <div className="mt-4">Loading...</div>
-      </div>
-    );
-  }
+      const { data: rewardsData } = await supabase.from("rewards").select("*");
 
+      const { data: redeemedData } = await supabase
+        .from("redemptions")
+        .select("*, rewards(*)")
+        .eq("student_id", studentId)
+        .order("inserted_at", { ascending: false });
+
+      if (studentData) {
+        setStudent(studentData);
+        setCredits(studentData.monthly_credits);
+      }
+
+      if (rewardsData) setRewards(rewardsData);
+      if (redeemedData) setRedeemed(redeemedData);
+    };
+
+    fetchData();
+  }, []);
+
+  // ---------------------- Redeem & Cart ----------------------
+  const addToCart = (reward: Reward) => {
+    if (!cart.find((r) => r.id === reward.id)) setCart([...cart, reward]);
+  };
+
+  const removeFromCart = (rewardId: number) => {
+    setCart(cart.filter((r) => r.id !== rewardId));
+  };
+
+  const checkoutCart = async () => {
+    if (!student) return;
+    const totalCost = cart.reduce((acc, r) => acc + r.cost, 0);
+    if (totalCost > credits) return alert("Not enough credits!");
+
+    // Insert into redemptions table
+    for (const reward of cart) {
+      await supabase.from("redemptions").insert({
+        student_id: student.id,
+        reward_id: reward.id,
+      });
+    }
+
+    // Deduct credits
+    const { error } = await supabase
+      .from("students")
+      .update({ monthly_credits: credits - totalCost })
+      .eq("id", student.id);
+
+    if (error) console.error(error);
+    else {
+      setCredits(credits - totalCost);
+      setRedeemed([...redeemed, ...cart.map((r) => ({ reward: r, id: Date.now(), redeemed_at: new Date().toISOString() }))]);
+      setCart([]);
+    }
+  };
+
+  // ---------------------- AI Nudges ----------------------
+  const nudges = student
+    ? [
+        student.attendance_pct < 75
+          ? "⚠️ Try to attend regularly! Aim for 90% this month."
+          : "✅ Great job on attendance! Keep it up!",
+        student.marks_pct < 60
+          ? "📖 Spend 30 minutes daily revising — it will help boost marks."
+          : "🎉 You’re doing well in academics!",
+        student.remedial_participation
+          ? "👏 Attended remedial sessions — extra effort counts!"
+          : "Consider joining a remedial session for bonus credits.",
+      ]
+    : [];
+
+  const impactData = student
+    ? [
+        { name: "Attendance", value: student.attendance_pct },
+        { name: "Marks", value: student.marks_pct },
+        { name: "Remedial", value: student.remedial_participation ? 10 : 0 },
+      ]
+    : [];
+
+  const badges = student
+    ? [
+        { label: "Consistent Learner", condition: student.attendance_pct >= 90 },
+        { label: "Active Participant", condition: student.remedial_participation },
+        { label: "Scholar in Progress", condition: student.marks_pct >= 75 },
+      ]
+    : [];
+
+  // ---------------------- Render ----------------------
   return (
-    <div className="p-4 grid gap-4">
-      <h1 className="text-2xl font-bold">🎁 Rewards Dashboard</h1>
+    <div className="p-6 space-y-6">
+      <h1 className="text-3xl font-bold text-center text-indigo-600">
+        🎁 Rewards Dashboard
+      </h1>
 
-      {/* Custom Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <div className="flex space-x-8">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === tab.id
-                  ? "border-blue-500 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <Tabs defaultValue="progress" className="space-y-4">
+        <TabsList className="grid grid-cols-4 gap-2 bg-gray-100 rounded-xl p-1">
+          <TabsTrigger value="progress">Progress</TabsTrigger>
+          <TabsTrigger value="rewards">Redeem</TabsTrigger>
+          <TabsTrigger value="nudges">AI Nudges</TabsTrigger>
+          <TabsTrigger value="impact">Impact</TabsTrigger>
+        </TabsList>
 
-      {/* Tab Content */}
-      <div className="mt-4">
-        {/* ✅ Progress Tracking */}
-        {activeTab === "progress" && (
-          <Card>
-            <CardContent className="space-y-4 pt-6">
-              <h2 className="text-xl font-semibold">Smart Progress Tracking</h2>
-              <div className="space-y-3">
-                <div>
-                  <p className="mb-1">Attendance: {attendance}%</p>
-                  <Progress value={attendance} className="h-2" />
-                </div>
-                <div>
-                  <p className="mb-1">Marks: {marks}%</p>
-                  <Progress value={marks} className="h-2" />
-                </div>
-                <p>Remedial Sessions: {remedial}</p>
-                <p className="font-bold text-lg">Total Credits: {credits}</p>
-              </div>
+        {/* ---------------- Progress Tracking ---------------- */}
+        <TabsContent value="progress">
+          <Card className="shadow-lg border border-gray-200 rounded-2xl">
+            <CardHeader>
+              <CardTitle>Smart Progress Tracking</CardTitle>
+              <CardDescription>
+                Track your attendance, marks, and remedial participation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {student && (
+                <>
+                  <div>
+                    <p className="font-semibold">Attendance: {student.attendance_pct}%</p>
+                    <Progress value={student.attendance_pct} />
+                  </div>
+                  <div>
+                    <p className="font-semibold">Marks: {student.marks_pct}%</p>
+                    <Progress value={student.marks_pct} />
+                  </div>
+                  <div>
+                    <p className="font-semibold">
+                      Remedial Participation: {student.remedial_participation ? "Yes" : "No"}
+                    </p>
+                  </div>
+                  <p className="font-bold">Total Credits: {credits}</p>
 
-              <div className="flex flex-wrap gap-2 mt-4">
-                {badges.map(
-                  (badge, i) =>
-                    badge.condition && (
-                      <Badge key={i} className="bg-green-100 text-green-800">
-                        {badge.label}
-                      </Badge>
-                    )
-                )}
-              </div>
+                  <div className="flex gap-2 mt-2">
+                    {badges.map(
+                      (b, i) => b.condition && <Badge key={i}>{b.label}</Badge>
+                    )}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
-        )}
+        </TabsContent>
 
-        {/* ✅ Redeem Rewards */}
-        {activeTab === "rewards" && (
-          <Card>
-            <CardContent className="space-y-4 pt-6">
-              <h2 className="text-xl font-semibold">Redeem Rewards</h2>
-              <p className="text-lg font-medium">Credits Available: {credits}</p>
-              
-              {rewards.length === 0 ? (
-                <p className="text-gray-500">No rewards available at the moment.</p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {rewards.map((r) => (
-                    <div
-                      key={r.id}
-                      className="border p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow"
+        {/* ---------------- Redeem Rewards ---------------- */}
+        <TabsContent value="rewards">
+          <Card className="shadow-lg border border-gray-200 rounded-2xl">
+            <CardHeader>
+              <CardTitle>Redeem Rewards</CardTitle>
+              <CardDescription>
+                Add rewards to your cart and redeem using your credits.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="font-semibold">Credits Available: {credits}</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {rewards.map((r) => (
+                  <motion.div
+                    key={r.id}
+                    whileHover={{ scale: 1.05 }}
+                    className="border p-3 rounded-xl shadow hover:shadow-lg transition"
+                  >
+                    <h3 className="font-bold">{r.title}</h3>
+                    <p>Cost: {r.cost} credits</p>
+                    <Button
+                      className="mt-2 w-full"
+                      onClick={() => addToCart(r)}
+                      disabled={cart.find((c) => c.id === r.id)}
                     >
-                      <h3 className="font-semibold text-lg">{r.name}</h3>
-                      <p className="text-gray-600 mb-3">Cost: {r.cost} credits</p>
-                      <Button
-                        onClick={() => handleRedeem(r)}
-                        disabled={credits < r.cost}
-                        className="w-full"
-                      >
-                        {credits < r.cost ? "Insufficient Credits" : "Redeem"}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {redeemed.length > 0 && (
-                <div className="mt-6">
-                  <h3 className="font-semibold text-lg mb-3">Redeemed Rewards:</h3>
-                  <div className="space-y-2">
-                    {redeemed.map((r, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <span className="text-green-500">✅</span>
-                        <span>{r.rewards?.name || "Unknown reward"}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ✅ AI Nudges */}
-        {activeTab === "nudges" && (
-          <Card>
-            <CardContent className="space-y-4 pt-6">
-              <h2 className="text-xl font-semibold">AI Nudges</h2>
-              <div className="space-y-3">
-                {nudges.map((nudge, i) => (
-                  <div key={i} className="p-3 bg-blue-50 rounded-lg border-l-4 border-blue-400">
-                    <p>{nudge}</p>
-                  </div>
+                      {cart.find((c) => c.id === r.id) ? "Added" : "Add to Cart"}
+                    </Button>
+                  </motion.div>
                 ))}
               </div>
-              
-            </CardContent>
-          </Card>
-        )}
 
-        {/* ✅ Sponsor Impact */}
-        {activeTab === "impact" && (
-          <Card>
-            <CardContent className="pt-6">
-              <h2 className="text-xl font-semibold mb-4">
-                Impact Dashboard ({impactMonth})
-              </h2>
-              
-              {impactData.some(item => item.value > 0) ? (
-                <>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <PieChart>
-                      <Pie
-                        data={impactData.filter(item => item.value > 0)}
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={80}
-                        dataKey="value"
-                        label={({name, value}) => `${name}: ${value}${name === 'Attendance' || name === 'Marks' ? '%' : ''}`}
+              {/* Cart Section */}
+              {cart.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-semibold">Cart</h3>
+                  <ul className="space-y-2">
+                    {cart.map((r) => (
+                      <li
+                        key={r.id}
+                        className="flex justify-between items-center border p-2 rounded-xl"
                       >
-                        {impactData.map((_, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={COLORS[index % COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <p className="mt-4 text-center font-medium">
-                    This month you earned {credits} credits!
-                  </p>
-                </>
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-gray-500">No data available yet. Start attending classes and completing assignments to see your impact!</p>
+                        <span>{r.title}</span>
+                        <span>{r.cost} credits</span>
+                                                <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => removeFromCart(r.id)}
+                        >
+                          Remove
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex justify-between items-center mt-4">
+                    <span className="font-bold">
+                      Total: {cart.reduce((sum, r) => sum + r.cost, 0)} credits
+                    </span>
+                    <Button onClick={checkoutCart} className="bg-indigo-600 hover:bg-indigo-700">
+                      Checkout
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Redeemed Rewards */}
+              {redeemed.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-semibold">Redeemed Rewards</h3>
+                  <ul className="space-y-2">
+                    {redeemed.map((r) => (
+                      <li key={r.id} className="flex justify-between items-center border p-2 rounded-xl bg-gray-50">
+                        <span>✅ {r.reward.title}</span>
+                        <span>{new Date(r.redeemed_at).toLocaleDateString()}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </CardContent>
           </Card>
-        )}
-      </div>
+        </TabsContent>
+
+        {/* ---------------- AI Nudges ---------------- */}
+        <TabsContent value="nudges">
+          <Card className="shadow-lg border border-gray-200 rounded-2xl">
+            <CardHeader>
+              <CardTitle>AI Nudges</CardTitle>
+              <CardDescription>Personalized nudges to improve performance.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {nudges.map((n, i) => (
+                <p key={i} className="p-2 bg-yellow-50 border-l-4 border-yellow-400 rounded">
+                  {n}
+                </p>
+              ))}
+              <Button variant="outline" className="mt-4">
+                Share with Parents via SMS
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ---------------- Impact Dashboard ---------------- */}
+        <TabsContent value="impact">
+          <Card className="shadow-lg border border-gray-200 rounded-2xl">
+            <CardHeader>
+              <CardTitle>Impact Dashboard</CardTitle>
+              <CardDescription>
+                Visualize your learning impact for the current month.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center">
+              <ResponsiveContainer width="100%" height={250}>
+                <PieChart>
+                  <Pie
+                    data={impactData}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={90}
+                    dataKey="value"
+                    label
+                  >
+                    {impactData.map((_, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={COLORS[index % COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <p className="mt-4 font-bold text-indigo-600">
+                This month you earned {credits} credits!
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
 
-export default Rewards;
+export default RewardsDashboard;
