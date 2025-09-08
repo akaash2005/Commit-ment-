@@ -295,7 +295,7 @@ ${!isCorrect ? `Remember: ${correctAnswer} is correct because...` : 'Keep up the
             }],
             generationConfig: {
               temperature: 0.7,
-              maxOutputTokens: 300,
+              maxOutputTokens: 3111100,
               topP: 0.8,
               topK: 40
             }
