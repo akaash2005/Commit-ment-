@@ -1,64 +1,42 @@
-import { Tabs } from "expo-router";
-import { AntDesign } from "@expo/vector-icons";
+import React, { useEffect } from 'react';
+import { Stack, router } from 'expo-router';
+import { View, ActivityIndicator } from 'react-native';
+import { AuthProvider, useAuth } from '../lib/AuthContext';
+import '../global.css';
 
+function RootLayoutNav() {
+  const { isAuthenticated, isLoading } = useAuth();
 
-export default function Layout() {
+  useEffect(() => {
+    if (!isLoading) {
+      if (isAuthenticated) {
+        router.replace('/(tabs)');
+      } else {
+        router.replace('/auth');
+      }
+    }
+  }, [isAuthenticated, isLoading]);
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
+
   return (
-    <Tabs>
-      <Tabs.Screen
-        name="home"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ color, size }) => (
-            <AntDesign name="home" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="aimentor"
-        options={{
-          title: "AI Mentor",
-          tabBarIcon: ({ color, size }) => (
-            <AntDesign name="user" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="rewards"
-        options={{
-          title: "Rewards",
-          tabBarIcon: ({ color, size }) => (
-            <AntDesign name="gift" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="girlsfirst"
-        options={{
-          title: "Girls First",
-          tabBarIcon: ({ color, size }) => (
-            <AntDesign name="woman" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="career"
-        options={{
-          title: "Career Guide",
-          tabBarIcon: ({ color, size }) => (
-            <AntDesign name="book" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          title: "Chat",
-          tabBarIcon: ({ color, size }) => (
-            <AntDesign name="message1" size={size} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="auth" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    </Stack>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <RootLayoutNav />
+    </AuthProvider>
   );
 }

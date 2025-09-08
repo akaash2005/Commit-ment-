@@ -32,6 +32,23 @@ export interface ChatUser {
   is_online?: boolean;
 }
 
+export interface Student {
+  id: string;
+  user_id: string; // References auth.users.id
+  name: string;
+  attendance_pct?: number;
+  marks_pct?: number;
+  remedial_participation?: boolean;
+  monthly_credits?: number;
+  redeemed_this_month?: number;
+  parent_id?: string;
+  career_goal?: string;
+  amount?: number;
+  amount_required?: number;
+  amount_received?: number;
+  gender?: string;
+}
+
 export interface ChatScreenProps {
   student_id: string;
   match_id?: string;
@@ -60,6 +77,11 @@ export interface Database {
         Row: Message;
         Insert: Omit<Message, 'id' | 'created_at'>;
         Update: Partial<Omit<Message, 'id'>>;
+      };
+      Students: {
+        Row: Student;
+        Insert: Omit<Student, 'id'>;
+        Update: Partial<Omit<Student, 'id' | 'user_id'>>;
       };
     };
   };
