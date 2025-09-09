@@ -1,0 +1,1087 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  SafeAreaView,
+  StatusBar,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  ScrollView,
+  Alert,
+  RefreshControl,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { supabase, chatService } from '../../lib/supabase';
+import { Match, Message, ChatUser } from '../types/database';
+import { useAuth } from '../../context/AuthContext';
+
+// Interface for chat data with Supabase integration
+interface ChatData {
+  id: string;
+  name: string;
+  avatar: string;
+  lastMessage: string;
+  timestamp: string;
+  unreadCount: number;
+  messages: Array<{
+    id: string;
+    message: string;
+    isSent: boolean;
+    timestamp: string;
+    amount_funded?: number;
+  }>;
+  match_id: string;
+  sponsor_id: string;
+}
+// Helper function to format timestamp
+const formatTimestamp = (dateString: string) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+  
+  if (diffInHours < 1) {
+    const minutes = Math.floor(diffInHours * 60);
+    return `${minutes} min ago`;
+  } else if (diffInHours < 24) {
+    return `${Math.floor(diffInHours)} hour${Math.floor(diffInHours) > 1 ? 's' : ''} ago`;
+  } else {
+    return date.toLocaleDateString();
+  }
+};
+
+// Helper function to get initials from name
+const getInitials = (name: string) => {
+  return name.split(' ').map(n => n[0]).join('').toUpperCase();
+};
+
+interface ChatListScreenProps {
+  chats: ChatData[];
+  onChatPress: (chat: ChatData) => void;
+  searchQuery: string;
+  onSearchChange: (query: string) => void;
+  loading: boolean;
+  error: string | null;
+  onRetry?: () => void;
+}
+
+const ChatListScreen = ({ chats, onChatPress, searchQuery, onSearchChange, loading, error, onRetry }: ChatListScreenProps) => {
+  const filteredChats = chats.filter(chat =>
+    chat.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    chat.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const renderChatItem = ({ item }: { item: ChatData }) => (
+    <TouchableOpacity
+      style={styles.chatItem}
+      onPress={() => onChatPress(item)}
+      activeOpacity={0.7}
+    >
+      <View style={styles.avatar}>
+        <Text style={styles.avatarText}>{item.avatar}</Text>
+      </View>
+      
+      <View style={styles.chatInfo}>
+        <View style={styles.chatHeader}>
+          <Text style={styles.chatName}>{item.name}</Text>
+        </View>
+        <Text style={styles.lastMessage} numberOfLines={2}>
+          {item.lastMessage}
+        </Text>
+      </View>
+      
+      <View style={styles.chatMeta}>
+        <Text style={styles.timestamp}>{item.timestamp}</Text>
+        {item.unreadCount > 0 && (
+          <View style={styles.unreadBadge}>
+            <Text style={styles.unreadText}>{item.unreadCount}</Text>
+          </View>
+        )}
+
+      </View>
+    </TouchableOpacity>
+  );
+
+  const EmptyState = () => (
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIcon}>
+        <Text style={styles.emptyIconText}>{searchQuery ? '🔍' : '💭'}</Text>
+      </View>
+      <Text style={styles.emptyTitle}>
+        {searchQuery ? 'No chats found' : 'No chats yet'}
+      </Text>
+      <Text style={styles.emptyMessage}>
+        {searchQuery 
+          ? `No conversations match "${searchQuery}"`
+          : 'Start swiping to find matches and begin conversations'
+        }
+      </Text>
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar backgroundColor="#128c7e" barStyle="light-content" />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerContent}>
+          <View>
+            <Text style={styles.headerTitle}>Chats</Text>
+            <Text style={styles.headerSubtitle}>
+              {filteredChats.length} conversation{filteredChats.length !== 1 ? 's' : ''}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          value={searchQuery}
+          onChangeText={onSearchChange}
+          placeholder="Search chats..."
+          placeholderTextColor="#9CA3AF"
+        />
+      </View>
+
+      {/* Chat List */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#25d366" />
+          <Text style={styles.loadingText}>Loading chats...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Text style={styles.emptyIconText}>⚠️</Text>
+          </View>
+          <Text style={styles.emptyTitle}>Connection Error</Text>
+          <Text style={styles.emptyMessage}>{error}</Text>
+          {onRetry && (
+            <TouchableOpacity 
+              style={styles.retryButton} 
+              onPress={onRetry}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.retryButtonText}>Try Again</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : (
+        <FlatList
+          data={filteredChats}
+          renderItem={renderChatItem}
+          keyExtractor={(item) => item.id}
+          ListEmptyComponent={EmptyState}
+          showsVerticalScrollIndicator={false}
+          style={styles.chatList}
+        />
+      )}
+    </SafeAreaView>
+  );
+};
+
+interface ChatScreenProps {
+  chat: ChatData;
+  onBack: () => void;
+  onSendMessage: () => void;
+  newMessage: string;
+  setNewMessage: (message: string) => void;
+  sendingMessage: boolean;
+  messageError: string | null;
+}
+
+const ChatScreen = ({ chat, onBack, onSendMessage, newMessage, setNewMessage, sendingMessage, messageError }: ChatScreenProps) => {
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    // Auto-scroll to bottom when messages change
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, [chat.messages]);
+
+  const handleSend = () => {
+    if (newMessage.trim()) {
+      onSendMessage();
+    }
+  };
+
+  const renderMessage = (message: ChatData['messages'][0]) => (
+    <View
+      key={message.id}
+      style={[
+        styles.messageContainer,
+        message.isSent ? styles.sentMessage : styles.receivedMessage
+      ]}
+    >
+      {/* Mentor label for received messages */}
+      {!message.isSent && (
+        <Text style={styles.mentorLabel}>Mentor</Text>
+      )}
+      <View style={[
+        styles.messageBubble,
+        message.isSent ? styles.sentBubble : styles.mentorBubble
+      ]}>
+        <Text style={[
+          styles.messageText,
+          message.isSent ? styles.sentText : styles.mentorText
+        ]}>
+          {message.message}
+        </Text>
+        {message.amount_funded && (
+          <Text style={styles.fundingAmount}>
+            💰 ${message.amount_funded} funded
+          </Text>
+        )}
+        <View style={styles.messageFooter}>
+          <Text style={[
+            styles.messageTime,
+            message.isSent ? styles.sentTime : styles.mentorTime
+          ]}>
+            {message.timestamp}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.chatContainer}>
+      <StatusBar backgroundColor="#128c7e" barStyle="light-content" />
+      
+      {/* Chat Header */}
+      <View style={styles.chatHeader}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={onBack}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="arrow-back" size={24} color="white" />
+        </TouchableOpacity>
+        
+        <View style={styles.chatHeaderAvatar}>
+          <Text style={styles.chatHeaderAvatarText}>{chat.avatar}</Text>
+        </View>
+        
+        <View style={styles.chatHeaderInfo}>
+          <Text style={styles.chatHeaderName}>{chat.name}</Text>
+        </View>
+        
+        <View style={styles.chatHeaderActions}>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => {}} // Add refresh functionality here if needed
+            activeOpacity={0.7}
+          >
+            <Ionicons name="refresh" size={20} color="white" />
+          </TouchableOpacity>
+        </View>
+
+      </View>
+
+      {/* Messages */}
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.messagesContainer}
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            onRefresh={() => {}} // Can be connected to refresh functionality
+            tintColor="#25d366"
+          />
+        }
+      >
+        <View style={styles.messagesContent}>
+          {chat.messages.length === 0 ? (
+            <View style={styles.emptyMessagesContainer}>
+              <Text style={styles.emptyMessagesText}>No messages yet</Text>
+              <Text style={styles.emptyMessagesSubtext}>Start the conversation!</Text>
+            </View>
+          ) : (
+            chat.messages.map(renderMessage)
+          )}
+        </View>
+      </ScrollView>
+
+      {/* Input Area */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.inputContainer}
+      >
+        {messageError && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{messageError}</Text>
+          </View>
+        )}
+        <View style={styles.inputArea}>
+          <TextInput
+            style={styles.messageInput}
+            value={newMessage}
+            onChangeText={setNewMessage}
+            placeholder="Type a message"
+            placeholderTextColor="#9CA3AF"
+            multiline
+            maxLength={500}
+            editable={!sendingMessage}
+          />
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              { backgroundColor: (newMessage.trim() && !sendingMessage) ? '#25d366' : '#9CA3AF' }
+            ]}
+            onPress={handleSend}
+            disabled={!newMessage.trim() || sendingMessage}
+            activeOpacity={0.7}
+          >
+            {sendingMessage ? (
+              <ActivityIndicator size={20} color="white" />
+            ) : (
+              <Ionicons name="send" size={20} color="white" />
+            )}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+};
+
+export default function ChatApp() {
+  const { user } = useAuth();
+  const [view, setView] = useState('list'); // 'list' or 'chat'
+  const [selectedChat, setSelectedChat] = useState<ChatData | null>(null);
+  const [chats, setChats] = useState<ChatData[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Fetch chats and convert to chat format
+  const fetchChats = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Get all chat messages for the current user
+      const allMessages = await chatService.getChatsForUser(user?.id);
+      
+      // Group messages by chat_id
+      const chatGroups = allMessages.reduce((groups: Record<string, typeof allMessages>, message) => {
+        const chatId = message.chat_id;
+        if (!groups[chatId]) {
+          groups[chatId] = [];
+        }
+        groups[chatId].push(message);
+        return groups;
+      }, {} as Record<string, typeof allMessages>);
+      
+      // Convert grouped messages to chat format
+      const chatData = await Promise.all(Object.entries(chatGroups).map(async ([chatId, messages]) => {
+        // Sort messages by timestamp
+        const sortedMessages = messages.sort((a, b) => 
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+        
+        // Get the other user (sponsor) - assume current user is receiver, sponsor is sender
+        const sponsorId = sortedMessages.find(msg => msg.sender_id !== user?.id)?.sender_id;
+        
+        // Fetch sponsor name from Students table
+        let sponsorName = 'Mentor';
+        if (sponsorId) {
+          try {
+            const { data: sponsorData, error: sponsorError } = await supabase
+              .from('Students')
+              .select('name')
+              .eq('id', sponsorId)
+              .single();
+            
+            if (sponsorData && !sponsorError) {
+              sponsorName = sponsorData.name || 'Mentor';
+            }
+          } catch (err) {
+            console.log('Could not fetch sponsor name:', err);
+          }
+        }
+        
+        // Format messages
+        const formattedMessages = sortedMessages.map(msg => ({
+          id: msg.id,
+          message: msg.message || '',
+          isSent: msg.sender_id === user?.id,
+          timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          amount_funded: msg.amount_funded
+        }));
+        
+        // Get last message
+        const lastMessage = sortedMessages.length > 0 
+          ? sortedMessages[sortedMessages.length - 1].message || 'No message content'
+          : 'No messages yet';
+        
+        return {
+          id: chatId,
+          name: sponsorName,
+          avatar: getInitials(sponsorName),
+          lastMessage,
+          timestamp: sortedMessages.length > 0 
+            ? formatTimestamp(sortedMessages[sortedMessages.length - 1].created_at)
+            : '',
+          unreadCount: 0, // You'd calculate this based on read status
+          messages: formattedMessages,
+          match_id: chatId, // Using chat_id as match_id for compatibility
+          sponsor_id: sponsorId || ''
+        };
+      }));
+      
+      setChats(chatData);
+    } catch (err) {
+      console.error('Error fetching chats:', err);
+      setError('Failed to load chats. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Clear message error when switching chats
+  const handleChatPress = (chat: ChatData) => {
+    setSelectedChat(chat);
+    setView('chat');
+    setMessageError(null); // Clear any previous message errors
+    
+    // Mark messages as read
+    if (chat.unreadCount > 0) {
+      setChats(prev => prev.map(c => 
+        c.id === chat.id ? { ...c, unreadCount: 0 } : c
+      ));
+    }
+  };
+
+  const handleBackPress = () => {
+    setView('list');
+    setSelectedChat(null);
+    setNewMessage('');
+    setMessageError(null); // Clear message errors when going back
+    setSendingMessage(false); // Reset sending state
+  };
+
+  // Load chats on component mount and set up real-time subscription
+  useEffect(() => {
+    if (user?.id) {
+      fetchChats();
+    }
+    
+    // Set up real-time subscription for new messages
+    let messageSubscription;
+    if (user?.id) {
+      messageSubscription = supabase
+        .channel('chat-messages')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'Chat',
+            filter: `receiver_id=eq.${user?.id}`,
+          },
+          (payload) => {
+            handleNewMessage(payload.new as Message);
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      if (messageSubscription) {
+        messageSubscription.unsubscribe();
+      }
+    };
+  }, [user?.id]);
+
+  // Handle incoming real-time messages
+  const handleNewMessage = (newMessage: Message) => {
+    const formattedMessage = {
+      id: newMessage.id,
+      message: newMessage.message || '',
+      isSent: false,
+      timestamp: new Date(newMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      amount_funded: newMessage.amount_funded
+    };
+
+    // Update chats list
+    setChats(prev => {
+      const updatedChats = prev.map(chat => {
+        if (chat.id === newMessage.chat_id) {
+          return {
+            ...chat,
+            messages: [...chat.messages, formattedMessage],
+            lastMessage: formattedMessage.message,
+            timestamp: 'now',
+            unreadCount: chat.unreadCount + 1
+          };
+        }
+        return chat;
+      });
+      return updatedChats;
+    });
+
+    // Update selected chat if it's the active one
+    if (selectedChat && selectedChat.id === newMessage.chat_id) {
+      setSelectedChat(prev => prev ? {
+        ...prev,
+        messages: [...prev.messages, formattedMessage],
+        lastMessage: formattedMessage.message,
+        timestamp: 'now'
+      } : null);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !selectedChat || sendingMessage || !user?.id) return;
+
+    setSendingMessage(true);
+    setMessageError(null);
+    const messageText = newMessage.trim();
+    
+    // Optimistically add message to UI
+    const optimisticMessage = {
+      id: `temp-${Date.now()}`,
+      message: messageText,
+      isSent: true,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    const updatedChat = {
+      ...selectedChat,
+      messages: [...selectedChat.messages, optimisticMessage],
+      lastMessage: optimisticMessage.message,
+      timestamp: 'now'
+    };
+
+    setSelectedChat(updatedChat);
+    setChats(prev => prev.map(chat => 
+      chat.id === selectedChat.id ? updatedChat : chat
+    ));
+    setNewMessage('');
+
+    try {
+      // Send message to Supabase
+      const sentMessage = await chatService.sendMessage(
+        selectedChat.id,
+        user?.id,
+        selectedChat.sponsor_id,
+        messageText
+      );
+      
+      // Replace optimistic message with real message
+      const realMessage = {
+        id: sentMessage.id,
+        message: sentMessage.message || '',
+        isSent: true,
+        timestamp: new Date(sentMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        amount_funded: sentMessage.amount_funded
+      };
+
+      const finalChat = {
+        ...selectedChat,
+        messages: [...selectedChat.messages.slice(0, -1), realMessage],
+        lastMessage: realMessage.message,
+        timestamp: formatTimestamp(sentMessage.created_at)
+      };
+
+      setSelectedChat(finalChat);
+      setChats(prev => prev.map(chat => 
+        chat.id === selectedChat.id ? finalChat : chat
+      ));
+
+    } catch (err) {
+      console.error('Error sending message:', err);
+      setMessageError('Failed to send message. Please try again.');
+      
+      // Remove optimistic message on error
+      const revertedChat = {
+        ...selectedChat,
+        messages: selectedChat.messages.slice(0, -1),
+        lastMessage: selectedChat.messages.length > 1 ? selectedChat.messages[selectedChat.messages.length - 2].message : '',
+        timestamp: selectedChat.messages.length > 1 ? selectedChat.messages[selectedChat.messages.length - 2].timestamp : ''
+      };
+      
+      setSelectedChat(revertedChat);
+      setChats(prev => prev.map(chat => 
+        chat.id === selectedChat.id ? revertedChat : chat
+      ));
+      
+      // Restore message text
+      setNewMessage(messageText);
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  // Refresh messages for current chat
+  const refreshMessages = async () => {
+    if (!selectedChat || refreshing) return;
+    
+    setRefreshing(true);
+    try {
+      const messages = await chatService.getMessages(selectedChat.id);
+      const formattedMessages = messages.map(msg => ({
+        id: msg.id,
+        message: msg.message || '',
+        isSent: msg.sender_id === user?.id,
+        timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        amount_funded: msg.amount_funded
+      }));
+      
+      const updatedChat = {
+        ...selectedChat,
+        messages: formattedMessages
+      };
+      
+      setSelectedChat(updatedChat);
+      setChats(prev => prev.map(chat => 
+        chat.id === selectedChat.id ? updatedChat : chat
+      ));
+    } catch (err) {
+      console.error('Error refreshing messages:', err);
+      setMessageError('Failed to refresh messages.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  if (view === 'list') {
+    return (
+      <ChatListScreen
+        chats={chats}
+        onChatPress={handleChatPress}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        loading={loading}
+        error={error}
+        onRetry={fetchChats}
+      />
+    );
+  }
+
+  return (
+    <ChatScreen
+      chat={selectedChat!}
+      onBack={handleBackPress}
+      onSendMessage={handleSendMessage}
+      newMessage={newMessage}
+      setNewMessage={setNewMessage}
+      sendingMessage={sendingMessage}
+      messageError={messageError}
+    />
+  );
+}
+
+const styles = {
+  // Container Styles
+  container: {
+    flex: 1,
+    backgroundColor: 'white',
+  },
+  chatContainer: {
+    flex: 1,
+    backgroundColor: '#e5ddd5',
+  },
+  
+  // Header Styles
+  header: {
+    backgroundColor: '#128c7e',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerIcon: {
+    width: 40,
+    height: 40,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  headerIconText: {
+    fontSize: 18,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: 'white',
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  
+  // Search Styles
+  searchContainer: {
+    backgroundColor: 'white',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  searchInput: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    fontSize: 14,
+  },
+  
+  // Chat List Styles
+  chatList: {
+    flex: 1,
+    backgroundColor: 'white',
+  },
+  chatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  avatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#25d366',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  avatarText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+  chatInfo: {
+    flex: 1,
+  },
+  chatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  chatName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1f2937',
+  },
+
+  lastMessage: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+  },
+  chatMeta: {
+    alignItems: 'flex-end',
+  },
+  timestamp: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginBottom: 4,
+  },
+  unreadBadge: {
+    backgroundColor: '#25d366',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  unreadText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  messageStatus: {
+    fontSize: 14,
+    color: '#25d366',
+  },
+  
+  // Empty State Styles
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyIcon: {
+    width: 100,
+    height: 100,
+    backgroundColor: '#e0f2fe',
+    borderRadius: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  emptyIconText: {
+    fontSize: 40,
+  },
+  retryButton: {
+    backgroundColor: '#128c7e',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  emptyMessage: {
+    fontSize: 16,
+    color: '#6b7280',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  
+  // Loading Styles
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#6b7280',
+  },
+  
+  // Chat Screen Styles
+  chatHeader: {
+    backgroundColor: '#128c7e',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  chatHeaderAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  chatHeaderAvatarText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  chatHeaderInfo: {
+    flex: 1,
+  },
+  chatHeaderName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+  },
+
+  chatHeaderActions: {
+    flexDirection: 'row',
+  },
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  
+  // Messages Styles
+  messagesContainer: {
+    flex: 1,
+    backgroundColor: '#e5ddd5',
+  },
+  messagesContent: {
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
+  messageContainer: {
+    marginBottom: 8,
+  },
+  sentMessage: {
+    alignItems: 'flex-end',
+  },
+  receivedMessage: {
+    alignItems: 'flex-start',
+  },
+  messageBubble: {
+    maxWidth: '75%',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  sentBubble: {
+    backgroundColor: '#dcf8c6',
+    borderBottomRightRadius: 2,
+  },
+  receivedBubble: {
+    backgroundColor: 'white',
+    borderBottomLeftRadius: 2,
+  },
+  mentorBubble: {
+    backgroundColor: '#f0f9ff',
+    borderBottomLeftRadius: 2,
+    borderLeftWidth: 3,
+    borderLeftColor: '#3b82f6',
+  },
+  messageText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  sentText: {
+    color: '#333',
+  },
+  receivedText: {
+    color: '#333',
+  },
+  mentorText: {
+    color: '#1e40af',
+    fontWeight: '500',
+  },
+  messageFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: 4,
+  },
+  messageTime: {
+    fontSize: 11,
+    marginRight: 4,
+  },
+  sentTime: {
+    color: '#667781',
+  },
+  receivedTime: {
+    color: '#667781',
+  },
+  mentorTime: {
+    color: '#3b82f6',
+  },
+  mentorLabel: {
+    fontSize: 12,
+    color: '#3b82f6',
+    fontWeight: '600',
+    marginBottom: 4,
+    marginLeft: 8,
+  },
+  errorContainer: {
+    backgroundColor: '#fef2f2',
+    borderLeftWidth: 4,
+    borderLeftColor: '#ef4444',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 4,
+  },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  emptyMessagesContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyMessagesText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginBottom: 8,
+  },
+  emptyMessagesSubtext: {
+    fontSize: 14,
+    color: '#9ca3af',
+  },
+  
+  // Input Styles
+  inputContainer: {
+    backgroundColor: '#f0f2f5',
+  },
+  inputArea: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  messageInput: {
+    flex: 1,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 15,
+    maxHeight: 100,
+    marginRight: 8,
+  },
+  sendButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fundingAmount: {
+    fontSize: 12,
+    color: '#10b981',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+};
