@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,383 +10,150 @@ import {
   SafeAreaView,
   ActivityIndicator,
   FlatList,
-  Modal,
-  Animated,
-  RefreshControl,
-  Platform,
-  StatusBar,
 } from 'react-native';
+import { PieChart } from 'react-native-chart-kit';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { Student, Reward, Redemption } from '../../types/database';
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const { width: screenWidth } = Dimensions.get('window');
 
 // ---------------------- Types ----------------------
-interface Student {
-  id: string;
-  name: string;
-  attendance_pct: number;
-  marks_pct: number;
-  remedial_participation: boolean;
-  monthly_credits: number;
-  redeemed_this_month: number;
-  gender: string;
-  career_goal?: string;
-  total_credits_earned?: number;
-  level?: number;
-}
+// Using types from database.ts
 
-interface Reward {
-  id: number;
-  title: string;
-  type: string;
-  cost: number;
-  sponsor_id: string;
-  local_only: boolean;
-  description?: string;
-  icon?: string;
-  stock?: number;
-}
+// ---------------------- Custom Components ----------------------
+const AnimatedCard: React.FC<{ children: React.ReactNode; style?: any }> = ({ children, style }) => {
+  const scale = useSharedValue(0.95);
+  const opacity = useSharedValue(0);
 
-interface Redemption {
-  id: string;
-  reward: Reward;
-  timestamp: string;
-}
-
-interface Achievement {
-  id: string;
-  title: string;
-  description: string;
-  icon: string;
-  unlocked: boolean;
-  progress: number;
-  target: number;
-}
-
-interface Goal {
-  id: string;
-  title: string;
-  progress: number;
-  target: number;
-  completed: boolean;
-}
-
-// ---------------------- Enhanced Components ----------------------
-interface AnimatedCardProps {
-  children: React.ReactNode;
-  style?: object;
-  delay?: number;
-}
-
-const AnimatedCard = ({ children, style = {}, delay = 0 }: AnimatedCardProps) => {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.9)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        delay,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        delay,
-        useNativeDriver: true,
-      }),
-    ]).start();
+  React.useEffect(() => {
+    scale.value = withSpring(1);
+    opacity.value = withTiming(1, { duration: 300 });
   }, []);
 
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: opacity.value,
+  }));
+
   return (
-    <Animated.View
-      style={[
-        styles.card,
-        style,
-        {
-          opacity: fadeAnim,
-          transform: [{ scale: scaleAnim }],
-        },
-      ]}
-    >
+    <Animated.View style={[styles.card, animatedStyle, style]}>
       {children}
     </Animated.View>
   );
 };
 
-interface ProgressBarProps {
-  value: number;
-  color?: string;
-  height?: number;
-  animated?: boolean;
-}
+const ProgressBar: React.FC<{ value: number; color?: string }> = ({ value, color = '#6366F1' }) => {
+  const progress = useSharedValue(0);
 
-const ProgressBar = ({ value, color = '#6366F1', height = 8, animated = true }: ProgressBarProps) => {
-  const animatedWidth = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (animated) {
-      Animated.timing(animatedWidth, {
-        toValue: value,
-        duration: 1000,
-        useNativeDriver: false,
-      }).start();
-    }
+  React.useEffect(() => {
+    progress.value = withTiming(value / 100, { duration: 1000 });
   }, [value]);
 
+  const animatedStyle = useAnimatedStyle(() => ({
+    width: `${progress.value * 100}%`,
+  }));
+
   return (
-    <View style={[styles.progressContainer, { height }]}>
-      <Animated.View
-        style={[
-          styles.progressBar,
-          {
-            backgroundColor: color,
-            width: animated ? animatedWidth.interpolate({
-              inputRange: [0, 100],
-              outputRange: ['0%', '100%'],
-            }) : `${value}%`,
-          },
-        ]}
-      />
+    <View style={styles.progressContainer}>
+      <Animated.View style={[styles.progressBar, { backgroundColor: color }, animatedStyle]} />
     </View>
   );
 };
 
-interface BadgeProps {
-  label: string;
-  color?: string;
-  icon?: string;
-}
-
-const Badge = ({ label, color = '#10B981', icon = '🏆' }: BadgeProps) => (
+const Badge: React.FC<{ label: string; color?: string }> = ({ label, color = '#10B981' }) => (
   <View style={[styles.badge, { backgroundColor: `${color}20`, borderColor: color }]}>
-    <Text style={styles.badgeIcon}>{icon}</Text>
     <Text style={[styles.badgeText, { color }]}>{label}</Text>
   </View>
 );
 
-interface GradientButtonProps {
+const GradientButton: React.FC<{
   title: string;
   onPress: () => void;
   disabled?: boolean;
   colors?: string[];
-  style?: object;
-  icon?: string | null;
-}
-
-const GradientButton = ({
-  title,
-  onPress,
-  disabled = false,
-  colors = ['#6366F1', '#8B5CF6'],
-  style = {},
-  icon = null,
-}: GradientButtonProps) => {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.95,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      disabled={disabled}
-      activeOpacity={0.8}
+  style?: any;
+}> = ({ title, onPress, disabled = false, colors = ['#6366F1', '#8B5CF6'], style }) => (
+  <TouchableOpacity
+    style={[styles.buttonContainer, style]}
+    onPress={onPress}
+    disabled={disabled}
+    activeOpacity={0.8}
+  >
+    <LinearGradient
+      colors={disabled ? ['#9CA3AF', '#9CA3AF'] : colors}
+      style={styles.gradientButton}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0 }}
     >
-      <Animated.View
-        style={[
-          styles.buttonContainer,
-          {
-            backgroundColor: disabled ? '#9CA3AF' : colors[0],
-            transform: [{ scale: scaleAnim }],
-          },
-          style,
-        ]}
-      >
-        {icon && <Text style={styles.buttonIcon}>{icon}</Text>}
-        <Text style={[styles.buttonText, { opacity: disabled ? 0.6 : 1 }]}>
-          {title}
-        </Text>
-      </Animated.View>
-    </TouchableOpacity>
-  );
-};
+      <Text style={[styles.buttonText, { opacity: disabled ? 0.6 : 1 }]}>{title}</Text>
+    </LinearGradient>
+  </TouchableOpacity>
+);
 
 // ---------------------- Main Component ----------------------
-const RewardsDashboard = () => {
-  const { student: currentStudent } = useAuth();
+const RewardsDashboard: React.FC = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('progress');
   const [student, setStudent] = useState<Student | null>(null);
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [redeemed, setRedeemed] = useState<Redemption[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
   const [cart, setCart] = useState<Reward[]>([]);
   const [credits, setCredits] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [selectedReward, setSelectedReward] = useState<Reward | null>(null);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
 
-  const COLORS = {
-    primary: '#6366F1',
-    secondary: '#8B5CF6',
-    success: '#10B981',
-    warning: '#F59E0B',
-    danger: '#EF4444',
-    info: '#3B82F6',
-  };
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
-  // Enhanced fetch with real database integration
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      
-      if (!currentStudent?.id) {
-        console.error('No authenticated student found');
+  // Fetch student, rewards, and redemption data
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user?.id) {
+        setLoading(false);
         return;
       }
 
-      // Fetch student data
-      const { data: studentData, error: studentError } = await supabase
-        .from('Students')
-        .select('*')
-        .eq('id', currentStudent.id)
-        .single();
+      try {
+        setLoading(true);
 
-      if (studentError) {
-        console.error('Supabase student error:', studentError);
-      } else if (studentData) {
-        setStudent(studentData);
-        setCredits(studentData.monthly_credits || 0);
-        // Achievements are generated based on the real data
-        generateAchievements(studentData);
+        const { data: studentData } = await supabase
+          .from('Students')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        const { data: rewardsData } = await supabase.from('Rewards').select('*');
+
+        const { data: redeemedData } = await supabase
+          .from('Redemptions')
+          .select('*, Rewards(*)')
+          .eq('student_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (studentData) {
+          setStudent(studentData);
+          setCredits(studentData.monthly_credits || 0);
+        }
+
+        if (rewardsData) setRewards(rewardsData);
+        if (redeemedData) setRedeemed(redeemedData);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setLoading(false);
       }
+    };
 
-      // Fetch rewards
-      const { data: rewardsData, error: rewardsError } = await supabase
-        .from('Rewards')
-        .select('*')
-        .order('cost', { ascending: true });
-
-      if (rewardsError) {
-        console.error('Supabase rewards error:', rewardsError);
-      } else if (rewardsData) {
-        setRewards(rewardsData as Reward[]);
-      }
-
-      // Fetch redemptions
-      const { data: redeemedData, error: redeemedError } = await supabase
-        .from('Redemptions')
-        .select(`
-          id,
-          timestamp,
-          reward:Rewards(*)
-        `)
-        .eq('student_id', currentStudent.id)
-        .order('timestamp', { ascending: false })
-        .limit(10);
-
-      if (redeemedError) {
-        console.error('Supabase redeemed error:', redeemedError);
-        setRedeemed([]);
-      } else if (redeemedData) {
-        setRedeemed(redeemedData as Redemption[]);
-      }
-      
-      // Fetch goals
-      const { data: goalsData, error: goalsError } = await supabase
-        .from('goals')
-        .select('*')
-        .eq('student_id', currentStudent.id);
-
-      if (goalsError) {
-        console.error('Supabase goals error:', goalsError);
-        setGoals([]);
-      } else if (goalsData) {
-        setGoals(goalsData as Goal[]);
-      }
-
-      if (studentData) {
-        generateAchievements(studentData);
-      } else {
-        setAchievements([]);
-      }
-
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      Alert.alert('Error', 'Failed to load data. Please try again.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const generateAchievements = (studentData: Student) => {
-    const achievementsList: Achievement[] = [
-      {
-        id: '1',
-        title: 'Attendance Champion',
-        description: 'Maintain 90% attendance',
-        icon: '📅',
-        unlocked: studentData.attendance_pct >= 90,
-        progress: studentData.attendance_pct,
-        target: 90,
-      },
-      {
-        id: '2',
-        title: 'Academic Star',
-        description: 'Score above 80% in tests',
-        icon: '⭐',
-        unlocked: studentData.marks_pct >= 80,
-        progress: studentData.marks_pct,
-        target: 80,
-      },
-      {
-        id: '3',
-        title: 'Credit Master',
-        description: 'Earn 500 total credits',
-        icon: '💎',
-        unlocked: (studentData.total_credits_earned || 0) >= 500,
-        progress: studentData.total_credits_earned || 0,
-        target: 500,
-      },
-      {
-        id: '4',
-        title: 'Consistent Learner',
-        description: 'Complete 30 days streak',
-        icon: '🔥',
-        unlocked: false,
-        progress: 0,
-        target: 30,
-      },
-    ];
-    setAchievements(achievementsList);
-  };
-
-  useEffect(() => {
     fetchData();
-  }, []);
+  }, [user?.id]);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchData();
-  };
-
+  // ---------------------- Cart & Redemption Logic ----------------------
   const addToCart = (reward: Reward) => {
     if (!cart.find((r) => r.id === reward.id)) {
       setCart([...cart, reward]);
@@ -398,525 +165,398 @@ const RewardsDashboard = () => {
   };
 
   const checkoutCart = async () => {
-    if (!student) return;
+    if (!student || !user?.id) return;
     const totalCost = cart.reduce((acc, r) => acc + r.cost, 0);
-    
     if (totalCost > credits) {
-      Alert.alert(
-        '❌ Insufficient Credits',
-        `You need ${totalCost - credits} more credits for this purchase.`,
-        [{ text: 'OK', style: 'default' }]
-      );
+      Alert.alert('Insufficient Credits', 'You do not have enough credits for this purchase.');
       return;
     }
 
-    Alert.alert(
-      '🛒 Confirm Purchase',
-      `Redeem ${cart.length} items for ${totalCost} credits?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
+    try {
+      // Insert into redemptions table
+      for (const reward of cart) {
+        await supabase.from('Redemptions').insert({
+          student_id: user.id,
+          reward_id: reward.id,
+        });
+      }
+
+      // Deduct credits
+      const { error } = await supabase
+        .from('Students')
+        .update({ monthly_credits: credits - totalCost })
+        .eq('id', user.id);
+
+      if (error) {
+        console.error(error);
+        Alert.alert('Error', 'Failed to process redemption. Please try again.');
+      } else {
+        setCredits(credits - totalCost);
+        setRedeemed([
+          ...redeemed,
+          ...cart.map((r) => ({
+            reward: r,
+            id: Date.now(),
+            redeemed_at: new Date().toISOString(),
+          })),
+        ]);
+        setCart([]);
+        Alert.alert('Success!', 'Rewards redeemed successfully!');
+      }
+    } catch (error) {
+      console.error('Checkout error:', error);
+      Alert.alert('Error', 'An unexpected error occurred.');
+    }
+  };
+
+  // ---------------------- Data Processing ----------------------
+  const nudges = student
+    ? [
+        student.attendance_pct < 75
+          ? '⚠️ Try to attend regularly! Aim for 90% this month.'
+          : '✅ Great job on attendance! Keep it up!',
+        student.marks_pct < 60
+          ? '📖 Spend 30 minutes daily revising — it will help boost marks.'
+          : '🎉 You are doing well in academics!',
+        student.remedial_participation
+          ? '👏 Attended remedial sessions — extra effort counts!'
+          : 'Consider joining a remedial session for bonus credits.',
+      ]
+    : [];
+
+  const chartData = student
+    ? [
         {
-          text: 'Confirm',
-          style: 'default',
-          onPress: async () => {
-            try {
-              for (const reward of cart) {
-                await supabase.from('Redemptions').insert({
-                  student_id: student.id,
-                  reward_id: reward.id,
-                });
-              }
-
-              const newCredits = credits - totalCost;
-              await supabase
-                .from('Students')
-                .update({ 
-                  monthly_credits: newCredits,
-                  redeemed_this_month: (student.redeemed_this_month || 0) + totalCost 
-                })
-                .eq('id', student.id);
-
-              setCredits(newCredits);
-              setCart([]);
-              
-              Alert.alert(
-                '🎉 Success!',
-                'Your rewards have been redeemed successfully! Check your email for details.',
-                [{ text: 'Great!', style: 'default' }]
-              );
-              
-              fetchData();
-            } catch (error) {
-              Alert.alert('Error', 'Failed to process redemption. Please try again.');
-            }
-          },
+          name: 'Attendance',
+          population: student.attendance_pct,
+          color: COLORS[0],
+          legendFontColor: '#7F7F7F',
+          legendFontSize: 15,
+        },
+        {
+          name: 'Marks',
+          population: student.marks_pct,
+          color: COLORS[1],
+          legendFontColor: '#7F7F7F',
+          legendFontSize: 15,
+        },
+        {
+          name: 'Remedial',
+          population: student.remedial_participation ? 10 : 0,
+          color: COLORS[2],
+          legendFontColor: '#7F7F7F',
+          legendFontSize: 15,
         },
       ]
-    );
-  };
+    : [];
 
-  const generateNudges = () => {
-    if (!student) return [];
-    
-    const nudges = [];
-    
-    if (student.attendance_pct < 75) {
-      nudges.push({
-        type: 'critical',
-        icon: '⚠️',
-        message: 'Your attendance is below 75%. Attend all classes this week to earn bonus credits!',
-        action: 'Set Reminder',
-      });
-    } else if (student.attendance_pct >= 90) {
-      nudges.push({
-        type: 'success',
-        icon: '🌟',
-        message: 'Excellent attendance! You\'re on track for the Attendance Champion badge.',
-        action: 'View Progress',
-      });
-    }
-    
-    if (student.marks_pct < 60) {
-      nudges.push({
-        type: 'warning',
-        icon: '📚',
-        message: 'Focus on studies! Join tomorrow\'s remedial class for extra credits.',
-        action: 'Book Session',
-      });
-    }
-    
-    if (!student.remedial_participation) {
-      nudges.push({
-        type: 'info',
-        icon: '💡',
-        message: 'Remedial sessions offer 20 bonus credits per session. Join one this week!',
-        action: 'View Schedule',
-      });
-    }
-    
-    if (student.monthly_credits > 100) {
-      nudges.push({
-        type: 'reward',
-        icon: '🎁',
-        message: `You have ${student.monthly_credits} credits! Check out new rewards in the store.`,
-        action: 'Browse Rewards',
-      });
-    }
-    
-    return nudges;
-  };
-
-  const nudges = generateNudges();
+  const badges = student
+    ? [
+        { label: 'Consistent Learner', condition: student.attendance_pct >= 90, color: '#10B981' },
+        { label: 'Active Participant', condition: student.remedial_participation, color: '#F59E0B' },
+        { label: 'Scholar in Progress', condition: student.marks_pct >= 75, color: '#8B5CF6' },
+      ]
+    : [];
 
   const tabs = [
     { id: 'progress', label: 'Progress', icon: '📊' },
-    { id: 'rewards', label: 'Store', icon: '🛍️' },
-    { id: 'achievements', label: 'Badges', icon: '🏆' },
-    { id: 'nudges', label: 'AI Coach', icon: '🤖' },
+    { id: 'rewards', label: 'Rewards', icon: '🎁' },
+    { id: 'nudges', label: 'AI Tips', icon: '🤖' },
+    { id: 'impact', label: 'Impact', icon: '📈' },
   ];
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading your dashboard...</Text>
+          <ActivityIndicator size="large" color="#6366F1" />
+          <Text style={styles.loadingText}>Loading your rewards...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.noDataContainer}>
+          <Text style={styles.noDataText}>Please log in to view rewards</Text>
+          <Text style={styles.noDataSubtext}>You need to be authenticated to access the rewards dashboard</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ---------------------- Render Functions ----------------------
   const renderProgressTab = () => (
-    <ScrollView 
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {student && (
-        <>
-          <AnimatedCard delay={0}>
-            <View style={styles.profileCard}>
-              <View style={styles.profileAvatar}>
-                <Text style={styles.profileAvatarText}>
-                  {student.name.split(' ').map(n => n[0]).join('')}
-                </Text>
+    <ScrollView showsVerticalScrollIndicator={false}>
+      <AnimatedCard>
+        <LinearGradient colors={['#6366F1', '#8B5CF6']} style={styles.headerGradient}>
+          <Text style={styles.cardTitle}>Smart Progress Tracking</Text>
+          <Text style={styles.cardSubtitle}>Track your learning journey</Text>
+        </LinearGradient>
+        
+        {student && (
+          <View style={styles.cardContent}>
+            <View style={styles.progressItem}>
+              <View style={styles.progressHeader}>
+                <Text style={styles.progressLabel}>📚 Attendance</Text>
+                <Text style={styles.progressValue}>{student.attendance_pct}%</Text>
               </View>
-              <View style={styles.profileInfo}>
-                <Text style={styles.profileName}>{student.name}</Text>
-                <Text style={styles.profileGoal}>🎯 {student.career_goal || 'Future Leader'}</Text>
-                <View style={styles.levelBadge}>
-                  <Text style={styles.levelText}>Level {student.level || 1}</Text>
-                </View>
-              </View>
+              <ProgressBar value={student.attendance_pct} color="#10B981" />
             </View>
-          </AnimatedCard>
-          <View style={styles.statsGrid}>
-            <AnimatedCard style={styles.statCard} delay={100}>
-              <Text style={styles.statIcon}>📅</Text>
-              <Text style={styles.statValue}>{student.attendance_pct}%</Text>
-              <Text style={styles.statLabel}>Attendance</Text>
-              <ProgressBar value={student.attendance_pct} color={COLORS.success} height={4} />
-            </AnimatedCard>
-            <AnimatedCard style={styles.statCard} delay={200}>
-              <Text style={styles.statIcon}>📝</Text>
-              <Text style={styles.statValue}>{student.marks_pct}%</Text>
-              <Text style={styles.statLabel}>Marks</Text>
-              <ProgressBar value={student.marks_pct} color={COLORS.warning} height={4} />
-            </AnimatedCard>
-          </View>
-          <AnimatedCard delay={300}>
-            <View style={[styles.creditsCard, { backgroundColor: COLORS.primary }]}>
-              <View style={styles.creditsHeader}>
-                <Text style={styles.creditsTitle}>💰 Available Credits</Text>
-                <Text style={styles.creditsAmount}>{credits}</Text>
+
+            <View style={styles.progressItem}>
+              <View style={styles.progressHeader}>
+                <Text style={styles.progressLabel}>🎯 Marks</Text>
+                <Text style={styles.progressValue}>{student.marks_pct}%</Text>
               </View>
-              <View style={styles.creditsDivider} />
-              <View style={styles.creditsStats}>
-                <View style={styles.creditStat}>
-                  <Text style={styles.creditStatLabel}>Earned This Month</Text>
-                  <Text style={styles.creditStatValue}>
-                    +{student.monthly_credits + (student.redeemed_this_month || 0)}
-                  </Text>
-                </View>
-                <View style={styles.creditStat}>
-                  <Text style={styles.creditStatLabel}>Spent This Month</Text>
-                  <Text style={styles.creditStatValue}>-{student.redeemed_this_month || 0}</Text>
-                </View>
-              </View>
+              <ProgressBar value={student.marks_pct} color="#F59E0B" />
             </View>
-          </AnimatedCard>
-          <View style={styles.quickActions}>
-            <GradientButton
-              title="View History"
-              icon="📜"
-              onPress={() => setActiveTab('achievements')}
-              colors={[COLORS.info, COLORS.primary]}
-              style={styles.quickActionButton}
-            />
-            <GradientButton
-              title="Earn More"
-              icon="➕"
-              onPress={() => setActiveTab('nudges')}
-              colors={[COLORS.success, '#059669']}
-              style={styles.quickActionButton}
-            />
+
+            <View style={styles.progressItem}>
+              <Text style={styles.progressLabel}>
+                🔥 Remedial: {student.remedial_participation ? 'Active' : 'Inactive'}
+              </Text>
+            </View>
+
+            <View style={styles.creditsContainer}>
+              <LinearGradient colors={['#10B981', '#059669']} style={styles.creditsGradient}>
+                <Text style={styles.creditsLabel}>Total Credits</Text>
+                <Text style={styles.creditsValue}>{credits}</Text>
+              </LinearGradient>
+            </View>
+
+            <View style={styles.badgesContainer}>
+              {badges.map(
+                (badge, i) =>
+                  badge.condition && (
+                    <Badge key={i} label={badge.label} color={badge.color} />
+                  )
+              )}
+            </View>
           </View>
-        </>
-      )}
+        )}
+      </AnimatedCard>
     </ScrollView>
   );
 
   const renderRewardsTab = () => (
-    <View style={{ flex: 1 }}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoriesContainer}
-        >
-          {['All', 'Meals', 'Education', 'Entertainment', 'Sports', 'Supplies'].map((category) => (
-            <TouchableOpacity key={category} style={styles.categoryChip}>
-              <Text style={styles.categoryText}>{category}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-        <FlatList
-          data={rewards}
-          numColumns={2}
-          scrollEnabled={false}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item, index }) => (
-            <AnimatedCard style={styles.rewardCard} delay={index * 50}>
-              <TouchableOpacity
-                onPress={() => {
-                  setSelectedReward(item);
-                  setModalVisible(true);
-                }}
-              >
-                <Text style={styles.rewardIcon}>{item.icon || '🎁'}</Text>
-                <Text style={styles.rewardTitle}>{item.title}</Text>
-                <Text style={styles.rewardDescription} numberOfLines={2}>
-                  {item.description}
-                </Text>
-                <View style={styles.rewardFooter}>
+    <ScrollView showsVerticalScrollIndicator={false}>
+      <AnimatedCard>
+        <LinearGradient colors={['#F59E0B', '#D97706']} style={styles.headerGradient}>
+          <Text style={styles.cardTitle}>Redeem Rewards</Text>
+          <Text style={styles.cardSubtitle}>Credits Available: {credits}</Text>
+        </LinearGradient>
+
+        <View style={styles.cardContent}>
+          <FlatList
+            data={rewards}
+            numColumns={2}
+            scrollEnabled={false}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={({ item }) => (
+              <View style={styles.rewardItem}>
+                <LinearGradient colors={['#F3F4F6', '#E5E7EB']} style={styles.rewardCard}>
+                  <Text style={styles.rewardTitle}>{item.title}</Text>
                   <Text style={styles.rewardCost}>{item.cost} credits</Text>
-                  {item.stock && item.stock < 10 && (
-                    <Text style={styles.rewardStock}>Only {item.stock} left!</Text>
-                  )}
+                  <GradientButton
+                    title={cart.find((c) => c.id === item.id) ? '✓ Added' : 'Add to Cart'}
+                    onPress={() => addToCart(item)}
+                    disabled={cart.find((c) => c.id === item.id) !== undefined}
+                    style={styles.addButton}
+                    colors={cart.find((c) => c.id === item.id) ? ['#10B981', '#059669'] : ['#6366F1', '#8B5CF6']}
+                  />
+                </LinearGradient>
+              </View>
+            )}
+          />
+
+          {cart.length > 0 && (
+            <AnimatedCard style={styles.cartContainer}>
+              <Text style={styles.cartTitle}>🛒 Cart ({cart.length} items)</Text>
+              {cart.map((item) => (
+                <View key={item.id} style={styles.cartItem}>
+                  <View>
+                    <Text style={styles.cartItemName}>{item.title}</Text>
+                    <Text style={styles.cartItemCost}>{item.cost} credits</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => removeFromCart(item.id)}
+                    style={styles.removeButton}
+                  >
+                    <Text style={styles.removeButtonText}>✕</Text>
+                  </TouchableOpacity>
                 </View>
+              ))}
+              <View style={styles.cartFooter}>
+                <Text style={styles.cartTotal}>
+                  Total: {cart.reduce((sum, r) => sum + r.cost, 0)} credits
+                </Text>
                 <GradientButton
-                  title={cart.find((c) => c.id === item.id) ? 'In Cart ✓' : 'Add to Cart'}
-                  onPress={() => addToCart(item)}
-                  disabled={cart.find((c) => c.id === item.id) !== undefined}
-                  style={styles.addToCartButton}
-                  colors={cart.find((c) => c.id === item.id) ? [COLORS.success] : [COLORS.primary]}
+                  title="Checkout"
+                  onPress={checkoutCart}
+                  colors={['#10B981', '#059669']}
                 />
-              </TouchableOpacity>
+              </View>
             </AnimatedCard>
           )}
-        />
-      </ScrollView>
-      {cart.length > 0 && (
-        <TouchableOpacity
-          style={styles.floatingCart}
-          onPress={() => {
-            Alert.alert(
-              `🛒 Cart (${cart.length} items)`,
-              `Total: ${cart.reduce((sum, r) => sum + r.cost, 0)} credits\n\nItems:\n${cart.map(r => `• ${r.title}`).join('\n')}`,
-              [
-                { text: 'Continue Shopping', style: 'cancel' },
-                { text: 'Clear Cart', style: 'destructive', onPress: () => setCart([]) },
-                { text: 'Checkout', onPress: checkoutCart },
-              ]
-            );
-          }}
-        >
-          <View style={styles.floatingCartBadge}>
-            <Text style={styles.floatingCartBadgeText}>{cart.length}</Text>
-          </View>
-          <Text style={styles.floatingCartIcon}>🛒</Text>
-          <Text style={styles.floatingCartTotal}>
-            {cart.reduce((sum, r) => sum + r.cost, 0)} ©
-          </Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
 
-  const renderAchievementsTab = () => (
-    <ScrollView showsVerticalScrollIndicator={false}>
-      <Text style={styles.sectionTitle}>🏆 Your Achievements</Text>
-      
-      {achievements.length > 0 ? (
-        achievements.map((achievement, index) => (
-          <AnimatedCard key={achievement.id} delay={index * 100}>
-            <View style={[
-              styles.achievementCard,
-              achievement.unlocked && styles.achievementUnlocked
-            ]}>
-              <Text style={styles.achievementIcon}>{achievement.icon}</Text>
-              <View style={styles.achievementContent}>
-                <Text style={styles.achievementTitle}>{achievement.title}</Text>
-                <Text style={styles.achievementDescription}>{achievement.description}</Text>
-                <View style={styles.achievementProgress}>
-                  <ProgressBar 
-                    value={(achievement.progress / achievement.target) * 100}
-                    color={achievement.unlocked ? COLORS.success : COLORS.warning}
-                    height={6}
-                  />
-                  <Text style={styles.achievementProgressText}>
-                    {achievement.progress}/{achievement.target}
+          {redeemed.length > 0 && (
+            <View style={styles.redeemedSection}>
+              <Text style={styles.sectionTitle}>✅ Redeemed Rewards</Text>
+              {redeemed.slice(0, 5).map((item, i) => (
+                <View key={i} style={styles.redeemedItem}>
+                  <Text style={styles.redeemedText}>{item.reward.title}</Text>
+                  <Text style={styles.redeemedDate}>
+                    {new Date(item.redeemed_at).toLocaleDateString()}
                   </Text>
                 </View>
-              </View>
-              {achievement.unlocked && (
-                <View style={styles.achievementBadge}>
-                  <Text style={styles.achievementBadgeText}>✓</Text>
-                </View>
-              )}
+              ))}
             </View>
-          </AnimatedCard>
-        ))
-      ) : (
-        <Text style={styles.emptyText}>No achievements to display yet. Keep up the great work!</Text>
-      )}
-
-
-      <Text style={[styles.sectionTitle, { marginTop: 24 }]}>📜 Recent Redemptions</Text>
-      {redeemed.length > 0 ? (
-        redeemed.slice(0, 5).map((item, index) => (
-          <AnimatedCard key={index} delay={index * 50}>
-            <View style={styles.historyItem}>
-              <Text style={styles.historyIcon}>{item.reward?.icon || '🎁'}</Text>
-              <View style={styles.historyContent}>
-                <Text style={styles.historyTitle}>{item.reward?.title || 'Unknown'}</Text>
-                <Text style={styles.historyDate}>
-                  {new Date(item.timestamp).toLocaleDateString()}
-                </Text>
-              </View>
-              <View style={[
-                styles.historyStatus,
-                { backgroundColor: COLORS.success }
-              ]}>
-                <Text style={styles.historyStatusText}>
-                  Redeemed
-                </Text>
-              </View>
-            </View>
-          </AnimatedCard>
-        ))
-      ) : (
-        <Text style={styles.emptyText}>No redemptions yet. Start shopping!</Text>
-      )}
+          )}
+        </View>
+      </AnimatedCard>
     </ScrollView>
   );
 
   const renderNudgesTab = () => (
     <ScrollView showsVerticalScrollIndicator={false}>
       <AnimatedCard>
-        <View style={styles.aiCoachHeader}>
-          <Text style={styles.aiCoachTitle}>🤖 Your AI Learning Coach</Text>
-          <Text style={styles.aiCoachSubtitle}>
-            Personalized tips to maximize your success
-          </Text>
-        </View>
-      </AnimatedCard>
-      
-      {nudges.length > 0 ? (
-        nudges.map((nudge, index) => (
-          <AnimatedCard key={index} delay={index * 100}>
-            <View style={[
-              styles.nudgeCard,
-              nudge.type === 'critical' && styles.nudgeCritical,
-              nudge.type === 'success' && styles.nudgeSuccess,
-              nudge.type === 'warning' && styles.nudgeWarning,
-              nudge.type === 'reward' && styles.nudgeReward,
-            ]}>
-              <Text style={styles.nudgeIcon}>{nudge.icon}</Text>
-              <View style={styles.nudgeContent}>
-                <Text style={styles.nudgeMessage}>{nudge.message}</Text>
-                <TouchableOpacity style={styles.nudgeAction}>
-                  <Text style={styles.nudgeActionText}>{nudge.action} →</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </AnimatedCard>
-        ))
-      ) : (
-        <AnimatedCard delay={100}>
-          <View style={styles.noNudgesCard}>
-            <Text style={styles.noNudgesText}>Your progress is looking good!</Text>
-            <Text style={styles.noNudgesSubText}>No active nudges at this time. Keep up the great work. ✨</Text>
-          </View>
-        </AnimatedCard>
-      )}
+        <LinearGradient colors={['#8B5CF6', '#7C3AED']} style={styles.headerGradient}>
+          <Text style={styles.cardTitle}>AI Nudges</Text>
+          <Text style={styles.cardSubtitle}>Personalized tips for success</Text>
+        </LinearGradient>
 
-      <Text style={[styles.sectionTitle, { marginTop: 24 }]}>🎯 Weekly Goals</Text>
-      <AnimatedCard delay={400}>
-        <View style={styles.goalCard}>
-          {goals.length > 0 ? (
-            goals.map((goal, index) => (
-              <View key={index} style={styles.goalItem}>
-                <Text style={styles.goalText}>{goal.title}</Text>
-                <View style={styles.goalProgressContainer}>
-                  <ProgressBar 
-                    value={(goal.progress / goal.target) * 100}
-                    color={COLORS.primary}
-                    height={6}
-                  />
-                  <Text style={styles.goalProgressText}>{goal.progress}/{goal.target}</Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyText}>No goals set yet.</Text>
-          )}
-          <GradientButton title="Add a Goal" onPress={() => Alert.alert('Add New Goal', 'This feature is coming soon!')} style={{ marginTop: 16 }} />
+        <View style={styles.cardContent}>
+          {nudges.map((nudge, i) => (
+            <View key={i} style={styles.nudgeItem}>
+              <Text style={styles.nudgeText}>{nudge}</Text>
+            </View>
+          ))}
+          
+          <GradientButton
+            title="📱 Share with Parents via SMS"
+            onPress={() => Alert.alert('Feature Coming Soon', 'SMS sharing will be available soon!')}
+            style={styles.shareButton}
+            colors={['#059669', '#047857']}
+          />
         </View>
       </AnimatedCard>
     </ScrollView>
   );
 
-  const renderContent = () => {
+  const renderImpactTab = () => (
+    <ScrollView showsVerticalScrollIndicator={false}>
+      <AnimatedCard>
+        <LinearGradient colors={['#EC4899', '#BE185D']} style={styles.headerGradient}>
+          <Text style={styles.cardTitle}>Impact Dashboard</Text>
+          <Text style={styles.cardSubtitle}>September Learning Impact</Text>
+        </LinearGradient>
+
+        <View style={styles.cardContent}>
+          {chartData.some(item => item.population > 0) ? (
+            <>
+              <PieChart
+                data={chartData.filter(item => item.population > 0)}
+                width={screenWidth - 80}
+                height={220}
+                chartConfig={{
+                  color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+                }}
+                accessor="population"
+                backgroundColor="transparent"
+                paddingLeft="15"
+                absolute
+              />
+              <View style={styles.impactSummary}>
+                <LinearGradient colors={['#F3F4F6', '#E5E7EB']} style={styles.summaryCard}>
+                  <Text style={styles.summaryText}>
+                    🎉 This month you earned {credits} credits!
+                  </Text>
+                  <Text style={styles.summarySubtext}>
+                    Keep up the great work and continue your learning journey!
+                  </Text>
+                </LinearGradient>
+              </View>
+            </>
+          ) : (
+            <View style={styles.noDataContainer}>
+              <Text style={styles.noDataText}>📊 No data available yet</Text>
+              <Text style={styles.noDataSubtext}>
+                Start attending classes and completing assignments to see your impact!
+              </Text>
+            </View>
+          )}
+        </View>
+      </AnimatedCard>
+    </ScrollView>
+  );
+
+  const renderTabContent = () => {
     switch (activeTab) {
       case 'progress':
         return renderProgressTab();
       case 'rewards':
         return renderRewardsTab();
-      case 'achievements':
-        return renderAchievementsTab();
       case 'nudges':
         return renderNudgesTab();
+      case 'impact':
+        return renderImpactTab();
       default:
-        return null;
+        return renderProgressTab();
     }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Student Hub</Text>
-        <TouchableOpacity onPress={onRefresh}>
-          <Text style={styles.refreshIcon}>🔄</Text>
-        </TouchableOpacity>
-      </View>
+      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
+        <Text style={styles.headerTitle}>🎁 Rewards Dashboard</Text>
+        <Text style={styles.headerSubtitle}>Track your learning journey</Text>
+      </LinearGradient>
 
       <View style={styles.tabContainer}>
-        {tabs.map((tab) => (
-          <TouchableOpacity
-            key={tab.id}
-            onPress={() => setActiveTab(tab.id)}
-            style={[
-              styles.tab,
-              activeTab === tab.id && styles.activeTab,
-            ]}
-          >
-            <Text style={styles.tabIcon}>{tab.icon}</Text>
-            <Text style={styles.tabText}>{tab.label}</Text>
-          </TouchableOpacity>
-        ))}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {tabs.map((tab) => (
+            <TouchableOpacity
+              key={tab.id}
+              style={[
+                styles.tab,
+                activeTab === tab.id && styles.activeTab,
+              ]}
+              onPress={() => setActiveTab(tab.id)}
+            >
+              <Text style={styles.tabIcon}>{tab.icon}</Text>
+              <Text
+                style={[
+                  styles.tabText,
+                  activeTab === tab.id && styles.activeTabText,
+                ]}
+              >
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
-      <View style={styles.content}>{renderContent()}</View>
-
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <AnimatedCard style={styles.modalContent}>
-            {selectedReward && (
-              <>
-                <TouchableOpacity style={styles.modalCloseButton} onPress={() => setModalVisible(false)}>
-                  <Text style={styles.modalCloseText}>✕</Text>
-                </TouchableOpacity>
-                <Text style={styles.modalIcon}>{selectedReward.icon}</Text>
-                <Text style={styles.modalTitle}>{selectedReward.title}</Text>
-                <Text style={styles.modalDescription}>{selectedReward.description}</Text>
-                <Badge label={selectedReward.type} color={COLORS.primary} icon="🏷️" />
-                <View style={styles.modalPrice}>
-                  <Text style={styles.modalPriceText}>Cost: </Text>
-                  <Text style={styles.modalPriceValue}>{selectedReward.cost} credits</Text>
-                </View>
-                {selectedReward.stock !== undefined && (
-                  <Text style={styles.modalStock}>
-                    {selectedReward.stock > 0 ? `${selectedReward.stock} in stock` : 'Out of stock'}
-                  </Text>
-                )}
-                <GradientButton
-                  title={cart.find((c) => c.id === selectedReward.id) ? 'In Cart' : 'Add to Cart'}
-                  onPress={() => {
-                    addToCart(selectedReward);
-                    setModalVisible(false);
-                  }}
-                  disabled={cart.find((c) => c.id === selectedReward.id) !== undefined || selectedReward.stock === 0}
-                  style={{ marginTop: 20 }}
-                />
-              </>
-            )}
-          </AnimatedCard>
-        </View>
-      </Modal>
+      <View style={styles.content}>
+        {renderTabContent()}
+      </View>
     </SafeAreaView>
   );
 };
 
-// ---------------------- Stylesheet ----------------------
+// ---------------------- Styles ----------------------
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F8FAFC',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
   },
   loadingText: {
     marginTop: 16,
@@ -924,602 +564,320 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 20,
-    backgroundColor: '#6366F1',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
-  refreshIcon: {
-    fontSize: 24,
+  headerSubtitle: {
+    fontSize: 16,
+    color: '#E5E7EB',
+    textAlign: 'center',
+    marginTop: 4,
   },
   tabContainer: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  tab: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    backgroundColor: '#fff',
-    marginHorizontal: 10,
-    borderRadius: 20,
-    marginTop: -20,
-    padding: 5,
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginRight: 12,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 5,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderRadius: 15,
+    elevation: 3,
   },
   activeTab: {
-    backgroundColor: '#E0E7FF',
+    backgroundColor: '#6366F1',
   },
   tabIcon: {
-    fontSize: 20,
+    fontSize: 18,
+    marginRight: 8,
   },
   tabText: {
-    fontSize: 12,
-    color: '#4B5563',
-    fontWeight: '500',
-    marginTop: 4,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  activeTabText: {
+    color: '#FFFFFF',
   },
   content: {
     flex: 1,
-    padding: 20,
+    paddingHorizontal: 20,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 5,
+    overflow: 'hidden',
   },
-  profileCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  headerGradient: {
+    paddingVertical: 20,
+    paddingHorizontal: 20,
   },
-  profileAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#C7D2FE',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  profileAvatarText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#4338CA',
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
+  cardTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#111827',
+    color: '#FFFFFF',
   },
-  profileGoal: {
+  cardSubtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#E5E7EB',
     marginTop: 4,
   },
-  levelBadge: {
-    backgroundColor: '#4F46E5',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 10,
-    marginTop: 8,
-    alignSelf: 'flex-start',
+  cardContent: {
+    padding: 20,
   },
-  levelText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
+  progressItem: {
+    marginBottom: 20,
   },
-  statsGrid: {
+  progressHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-  },
-  statCard: {
-    flex: 1,
-    marginRight: 8,
-    padding: 16,
-  },
-  statIcon: {
-    fontSize: 24,
+    alignItems: 'center',
     marginBottom: 8,
   },
-  statValue: {
-    fontSize: 20,
+  progressLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  progressValue: {
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#111827',
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 8,
+    color: '#6366F1',
   },
   progressContainer: {
-    width: '100%',
+    height: 8,
     backgroundColor: '#E5E7EB',
-    borderRadius: 5,
+    borderRadius: 4,
     overflow: 'hidden',
   },
   progressBar: {
     height: '100%',
-    borderRadius: 5,
+    borderRadius: 4,
   },
-  creditsCard: {
-    padding: 24,
+  creditsContainer: {
+    marginVertical: 20,
   },
-  creditsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  creditsGradient: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
     alignItems: 'center',
   },
-  creditsTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#fff',
-    opacity: 0.8,
-  },
-  creditsAmount: {
-    fontSize: 40,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  creditsDivider: {
-    height: 1,
-    backgroundColor: '#9CA3AF',
-    marginVertical: 16,
-    opacity: 0.3,
-  },
-  creditsStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  creditStat: {
-    alignItems: 'center',
-  },
-  creditStatLabel: {
-    fontSize: 12,
-    color: '#D1D5DB',
-  },
-  creditStatValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginTop: 4,
-  },
-  quickActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  quickActionButton: {
-    flex: 1,
-    marginHorizontal: 5,
-  },
-  categoriesContainer: {
-    paddingVertical: 10,
-    paddingLeft: 20,
-    marginBottom: 10,
-  },
-  categoryChip: {
-    backgroundColor: '#E0E7FF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
-  },
-  categoryText: {
-    color: '#4F46E5',
-    fontWeight: 'bold',
-  },
-  rewardCard: {
-    flex: 1,
-    margin: 8,
-    padding: 16,
-  },
-  rewardIcon: {
-    fontSize: 40,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  rewardTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#111827',
-    textAlign: 'center',
-  },
-  rewardDescription: {
-    fontSize: 12,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginVertical: 4,
-    height: 32,
-  },
-  rewardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  rewardCost: {
+  creditsLabel: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#374151',
+    color: '#FFFFFF',
+    opacity: 0.9,
   },
-  rewardStock: {
-    fontSize: 12,
-    color: '#EF4444',
-  },
-  addToCartButton: {
-    marginTop: 12,
-    paddingVertical: 8,
-  },
-  floatingCart: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    backgroundColor: '#10B981',
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  floatingCartBadge: {
-    backgroundColor: '#EF4444',
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  floatingCartBadgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  floatingCartIcon: {
-    fontSize: 20,
-    color: '#fff',
-  },
-  floatingCartTotal: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginLeft: 8,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 16,
-  },
-  achievementCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  achievementUnlocked: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#34D399',
-  },
-  achievementIcon: {
+  creditsValue: {
     fontSize: 32,
-    marginRight: 16,
-  },
-  achievementContent: {
-    flex: 1,
-  },
-  achievementTitle: {
-    fontSize: 16,
     fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  achievementDescription: {
-    fontSize: 14,
-    color: '#6B7280',
+    color: '#FFFFFF',
     marginTop: 4,
   },
-  achievementProgress: {
+  badgesContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  achievementProgressText: {
-    fontSize: 12,
-    color: '#4B5563',
-    marginLeft: 8,
-  },
-  achievementBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#34D399',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  achievementBadgeText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  historyItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  historyIcon: {
-    fontSize: 24,
-    marginRight: 16,
-  },
-  historyContent: {
-    flex: 1,
-  },
-  historyTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  historyDate: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    marginTop: 4,
-  },
-  historyStatus: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  historyStatusText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-    textTransform: 'capitalize',
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: '#6B7280',
-    marginTop: 20,
-  },
-  aiCoachHeader: {
-    marginBottom: 16,
-  },
-  aiCoachTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  aiCoachSubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  nudgeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  nudgeCritical: {
-    borderColor: '#EF4444',
-    backgroundColor: '#FEE2E2',
-  },
-  nudgeSuccess: {
-    borderColor: '#34D399',
-    backgroundColor: '#ECFDF5',
-  },
-  nudgeWarning: {
-    borderColor: '#F59E0B',
-    backgroundColor: '#FFFBEB',
-  },
-  nudgeReward: {
-    borderColor: '#6366F1',
-    backgroundColor: '#EEF2FF',
-  },
-  nudgeIcon: {
-    fontSize: 24,
-    marginRight: 16,
-  },
-  nudgeContent: {
-    flex: 1,
-  },
-  nudgeMessage: {
-    fontSize: 14,
-    color: '#1F2937',
-    fontWeight: '500',
-  },
-  nudgeAction: {
-    marginTop: 8,
-    alignSelf: 'flex-start',
-  },
-  nudgeActionText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#4F46E5',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: screenWidth * 0.85,
-    alignItems: 'center',
-  },
-  modalCloseButton: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    zIndex: 1,
-    padding: 5,
-  },
-  modalCloseText: {
-    fontSize: 20,
-    color: '#6B7280',
-  },
-  modalIcon: {
-    fontSize: 60,
-    marginBottom: 10,
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#111827',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  modalDescription: {
-    fontSize: 16,
-    color: '#4B5563',
-    textAlign: 'center',
-    marginBottom: 15,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    alignSelf: 'center',
-    marginBottom: 10,
-  },
-  badgeIcon: {
-    fontSize: 12,
-    marginRight: 4,
   },
   badgeText: {
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
-  modalPrice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 10,
+  rewardItem: {
+    flex: 1,
+    margin: 8,
   },
-  modalPriceText: {
-    fontSize: 16,
-    color: '#6B7280',
-  },
-  modalPriceValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  modalStock: {
-    fontSize: 14,
-    color: '#EF4444',
-    fontWeight: 'bold',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
+  rewardCard: {
+    padding: 16,
     borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    alignItems: 'center',
   },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  buttonIcon: {
-    fontSize: 18,
-    marginRight: 8,
-  },
-  goalCard: {
-    padding: 20,
-  },
-  goalItem: {
-    marginBottom: 16,
-  },
-  goalText: {
-    fontSize: 16,
-    color: '#1F2937',
-    fontWeight: '500',
+  rewardTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    textAlign: 'center',
     marginBottom: 8,
   },
-  goalProgressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  goalProgressText: {
+  rewardCost: {
     fontSize: 12,
     color: '#6B7280',
-    marginLeft: 8,
+    marginBottom: 12,
   },
-  noNudgesCard: {
-    padding: 24,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#D1D5DB',
-    borderStyle: 'dashed',
+  buttonContainer: {
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  gradientButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 150,
   },
-  noNudgesText: {
-    fontSize: 18,
+  buttonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  addButton: {
+    marginTop: 8,
+  },
+  cartContainer: {
+    marginTop: 16,
+    backgroundColor: '#F9FAFB',
+  },
+  cartTitle: {
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#4B5563',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  cartItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  cartItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  cartItemCost: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  removeButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  cartFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  cartTotal: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#374151',
+  },
+  redeemedSection: {
+    marginTop: 24,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  redeemedItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  redeemedText: {
+    fontSize: 14,
+    color: '#374151',
+  },
+  redeemedDate: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  nudgeItem: {
+    backgroundColor: '#FEF3C7',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B',
+  },
+  nudgeText: {
+    fontSize: 14,
+    color: '#92400E',
+    lineHeight: 20,
+  },
+  shareButton: {
+    marginTop: 16,
+  },
+  impactSummary: {
+    marginTop: 20,
+  },
+  summaryCard: {
+    padding: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  summaryText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#374151',
     textAlign: 'center',
   },
-  noNudgesSubText: {
-    marginTop: 8,
+  summarySubtext: {
     fontSize: 14,
     color: '#6B7280',
     textAlign: 'center',
+    marginTop: 8,
+  },
+  noDataContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noDataText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  noDataSubtext: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 20,
   },
 });
 

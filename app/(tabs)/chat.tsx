@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase, chatService } from '../../lib/supabase';
-import { Match, Message, ChatUser } from '../types/database';
+import { Match, Message, ChatUser } from '../../types/database';
 import { useAuth } from '../../context/AuthContext';
 
 // Interface for chat data with Supabase integration
@@ -386,7 +386,7 @@ export default function ChatApp() {
       }, {} as Record<string, typeof allMessages>);
       
       // Convert grouped messages to chat format
-      const chatData = await Promise.all(Object.entries(chatGroups).map(async ([chatId, messages]) => {
+      const chatData = Object.entries(chatGroups).map(([chatId, messages]) => {
         // Sort messages by timestamp
         const sortedMessages = messages.sort((a, b) => 
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -394,24 +394,7 @@ export default function ChatApp() {
         
         // Get the other user (sponsor) - assume current user is receiver, sponsor is sender
         const sponsorId = sortedMessages.find(msg => msg.sender_id !== user?.id)?.sender_id;
-        
-        // Fetch sponsor name from Students table
-        let sponsorName = 'Mentor';
-        if (sponsorId) {
-          try {
-            const { data: sponsorData, error: sponsorError } = await supabase
-              .from('Students')
-              .select('name')
-              .eq('id', sponsorId)
-              .single();
-            
-            if (sponsorData && !sponsorError) {
-              sponsorName = sponsorData.name || 'Mentor';
-            }
-          } catch (err) {
-            console.log('Could not fetch sponsor name:', err);
-          }
-        }
+        const sponsorName = sponsorId ? `Mentor` : 'Mentor';
         
         // Format messages
         const formattedMessages = sortedMessages.map(msg => ({
@@ -440,7 +423,7 @@ export default function ChatApp() {
           match_id: chatId, // Using chat_id as match_id for compatibility
           sponsor_id: sponsorId || ''
         };
-      }));
+      });
       
       setChats(chatData);
     } catch (err) {
@@ -725,7 +708,7 @@ const styles = {
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '600' as const,
     color: 'white',
   },
   headerSubtitle: {
@@ -775,7 +758,7 @@ const styles = {
   },
   avatarText: {
     color: 'white',
-    fontWeight: 'bold',
+    fontWeight: 'bold' as const,
     fontSize: 18,
   },
   chatInfo: {
@@ -788,7 +771,7 @@ const styles = {
   },
   chatName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '600' as const,
     color: '#1f2937',
   },
 
@@ -817,7 +800,7 @@ const styles = {
   unreadText: {
     color: 'white',
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '600' as const,
   },
   messageStatus: {
     fontSize: 14,
@@ -853,11 +836,11 @@ const styles = {
   retryButtonText: {
     color: 'white',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '600' as const,
   },
   emptyTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: 'bold' as const,
     color: '#1f2937',
     marginBottom: 16,
     textAlign: 'center',
@@ -914,7 +897,7 @@ const styles = {
   },
   chatHeaderAvatarText: {
     color: 'white',
-    fontWeight: 'bold',
+    fontWeight: 'bold' as const,
     fontSize: 14,
   },
   chatHeaderInfo: {
@@ -922,7 +905,7 @@ const styles = {
   },
   chatHeaderName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '600' as const,
     color: 'white',
   },
 
@@ -989,7 +972,7 @@ const styles = {
   },
   mentorText: {
     color: '#1e40af',
-    fontWeight: '500',
+    fontWeight: '500' as const,
   },
   messageFooter: {
     flexDirection: 'row',
@@ -1013,7 +996,7 @@ const styles = {
   mentorLabel: {
     fontSize: 12,
     color: '#3b82f6',
-    fontWeight: '600',
+    fontWeight: '600' as const,
     marginBottom: 4,
     marginLeft: 8,
   },
@@ -1030,7 +1013,7 @@ const styles = {
   errorText: {
     color: '#dc2626',
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '500' as const,
   },
   emptyMessagesContainer: {
     flex: 1,
@@ -1040,7 +1023,7 @@ const styles = {
   },
   emptyMessagesText: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '600' as const,
     color: '#6b7280',
     marginBottom: 8,
   },
@@ -1081,7 +1064,7 @@ const styles = {
   fundingAmount: {
     fontSize: 12,
     color: '#10b981',
-    fontWeight: '600',
+    fontWeight: '600' as const,
     marginTop: 4,
   },
 };

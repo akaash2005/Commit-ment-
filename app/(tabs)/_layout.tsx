@@ -1,8 +1,7 @@
 import { Tabs } from "expo-router";
 import { AntDesign } from "@expo/vector-icons";
 
-
-export default function Layout() {
+export default function TabsLayout() {
   return (
     <Tabs>
       <Tabs.Screen
@@ -41,6 +40,7 @@ export default function Layout() {
           ),
         }}
       />
+      
       <Tabs.Screen
         name="career"
         options={{

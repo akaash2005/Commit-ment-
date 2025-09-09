@@ -52,6 +52,9 @@ const Home = () => {
   }
 
   const getInitials = (name: string): string => {
+    if (!name || typeof name !== 'string') {
+      return 'NA';
+    }
     return name
       .split(' ')
       .map(n => n[0])
@@ -81,12 +84,12 @@ const Home = () => {
         <View style={styles.header}>
           <View style={styles.profileSection}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{getInitials(student.name)}</Text>
+              <Text style={styles.avatarText}>{getInitials(student.name || 'Unknown User')}</Text>
             </View>
             <View style={styles.profileInfo}>
               <Text style={styles.welcomeText}>Welcome back,</Text>
-              <Text style={styles.studentName}>{student.name}</Text>
-              <Text style={styles.studentEmail}>{student.email}</Text>
+              <Text style={styles.studentName}>{student.name || 'Unknown User'}</Text>
+              <Text style={styles.studentEmail}>{student.email || 'No email provided'}</Text>
             </View>
             <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
               <Ionicons name="log-out-outline" size={24} color="white" />

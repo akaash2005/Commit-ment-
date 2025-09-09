@@ -839,12 +839,7 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 18,
     fontWeight: 'bold',
-    textShadowColor: '#047857',
-    textShadowOffset: {
-      width: 1,
-      height: 1,
-    },
-    textShadowRadius: 2,
+    textShadow: '1px 1px 2px #047857',
   },
   resultContainer: {
     backgroundColor: '#FDF4FF',

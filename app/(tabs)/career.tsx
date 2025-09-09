@@ -34,6 +34,8 @@ interface CareerPathway {
 }
 
 const Career: React.FC = () => {
+
+
   const [currentStatus, setCurrentStatus] = useState('');
   const [careerDream, setCareerDream] = useState('');
   const [location, setLocation] = useState('');

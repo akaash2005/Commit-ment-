@@ -25,13 +25,15 @@ export default function Login() {
       return
     }
 
-    const result = await signInWithEmailPassword(trimmedEmail, trimmedPassword)
-
-    if (result.success) {
+    try {
+      const result = await signInWithEmailPassword(trimmedEmail, trimmedPassword)
+      if (!result.success) {
+        throw new Error(result.error)
+      }
       console.log("Logged in successfully")
       router.replace("/(tabs)/home")
-    } else {
-      setError(result.error || "Login failed")
+    } catch (error) {
+      setError(error.message || "Login failed")
     }
   }
 

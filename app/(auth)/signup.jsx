@@ -1,7 +1,7 @@
 import React, { useState } from "react"
 import { View, TextInput, Button, Text, ActivityIndicator, Picker } from "react-native"
 import { Link, router } from "expo-router"
-import { supabase } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase.ts"
 
 export default function Signup() {
   const [name, setName] = useState("")

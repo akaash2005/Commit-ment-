@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase, authService } from '../lib/supabase';
+import { supabase, authService } from '../lib/supabase.ts';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
@@ -110,14 +110,16 @@ export const AuthProvider = ({ children }) => {
         return { success: false, error: 'Please enter both email and password' };
       }
 
-      const { user: studentUser, error } = await authService.signInWithEmailPassword(email, password);
+      const result = await authService.signIn(email, password);
       
-      if (error) {
-        throw new Error(error);
+      if (!result) {
+        throw new Error('Login failed');
       }
       
+      const { user: studentUser, profile } = result;
+      
       if (studentUser) {
-        setStudent(studentUser);
+        setStudent(profile || studentUser);
         setUser({ id: studentUser.id });
         
         // Store session securely using the student's UUID
